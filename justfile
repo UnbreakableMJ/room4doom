@@ -29,13 +29,13 @@ voxel-viewer *ARGS:
 
 # --- fmt / lint / test ---
 
-# rustfmt (nightly — rustfmt.toml uses unstable options).
+# rustfmt across the workspace.
 fmt:
-	cargo +nightly fmt --all
+	cargo fmt --all
 
 # rustfmt --check only (no writes). CI gate.
 check-fmt:
-	cargo +nightly fmt --all -- --check
+	cargo fmt --all -- --check
 
 # Workspace clippy, warnings are errors.
 lint:

@@ -25,10 +25,9 @@ if [ -n "$STAGED_RUST" ]; then
 		trap restore_stash EXIT
 	fi
 
-	# rustfmt.toml uses unstable options, so format with the nightly rustfmt.
 	# info.rs is in rustfmt's ignore list; skip it explicitly too.
 	echo "$STAGED_RUST" | grep -v 'gameplay/src/info.rs' \
-		| xargs -r rustfmt +nightly
+		| xargs -r rustfmt
 	echo "$STAGED_RUST" | xargs -r git add
 fi
 

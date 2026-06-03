@@ -25,7 +25,8 @@ use game_config::{GameMode, Skill};
 use level::map_defs::{LineDef, SlopeType};
 use level::{LineDefFlags, MapPtr, Sector};
 use math::{
-    ANG45, ANG90, ANG180, ANG270, Angle, Bam, FixedT, float_to_fixed, p_aprox_distance, p_random, r_point_to_angle
+    ANG45, ANG90, ANG180, ANG270, Angle, Bam, FixedT, float_to_fixed, p_aprox_distance, p_random,
+    r_point_to_angle,
 };
 
 use super::movement::SubSectorMinMax;
