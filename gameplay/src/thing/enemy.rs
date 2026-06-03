@@ -19,7 +19,7 @@ use crate::env::floor::{FloorKind, ev_do_floor};
 use crate::info::{MOBJINFO, StateNum};
 use crate::level::LevelState;
 use crate::thing::{MapObjFlag, MapObject, MoveDir};
-use crate::thinker::{Thinker, ThinkerData};
+use crate::thinker::ThinkerData;
 use crate::{MAXPLAYERS, MapObjKind, SectorExt, teleport_move};
 use game_config::{GameMode, Skill};
 use level::map_defs::{LineDef, SlopeType};
@@ -344,10 +344,7 @@ pub(crate) fn a_keendie(actor: &mut MapObject) {
     let mut dead = true;
     level.thinkers.run_fn_on_things(|thinker| {
         if let ThinkerData::MapObject(mobj) = thinker.data()
-            && !ptr::eq(
-                mobj as *const _ as *const (),
-                actor as *const _ as *const (),
-            )
+            && !ptr::eq(mobj, actor)
             && mobj.kind == actor.kind
             && mobj.health > 0
         {
@@ -411,7 +408,7 @@ pub(crate) fn a_brainawake(actor: &mut MapObject) {
             if t.mobj().kind == MapObjKind::MT_BOSSTARGET {
                 // eeeesssh...
                 // TODO: fix this
-                targets.push(t as *const Thinker as *mut Thinker)
+                targets.push(ptr::from_mut(t))
             }
         }
         false
@@ -1127,10 +1124,7 @@ fn all_bosses_dead(actor: &MapObject, level: &mut LevelState) -> bool {
     let mut dead = true;
     level.thinkers.run_fn_on_things(|thinker| {
         if let ThinkerData::MapObject(mobj) = thinker.data()
-            && !ptr::eq(
-                mobj as *const _ as *const (),
-                actor as *const _ as *const (),
-            )
+            && !ptr::eq(mobj, actor)
             && mobj.kind == actor.kind
             && mobj.health > 0
         {
