@@ -1037,46 +1037,4 @@ impl SegRender {
             }
         }
     }
-
-    #[cfg(feature = "debug_seg_invert")]
-    fn highlight_inverted_clips(&self, rdata: &RenderData, pixels: &mut impl DrawBuffer) {
-        let width = pixels.size().width_usize();
-        let height = pixels.size().height_usize();
-
-        let mut inverted_count = 0;
-        let mut first_inverted = None;
-
-        for x in 0..width {
-            let ceiling = rdata.portal_clip.ceilingclip[x];
-            let floor = rdata.portal_clip.floorclip[x];
-
-            if ceiling >= floor {
-                inverted_count += 1;
-                if first_inverted.is_none() {
-                    first_inverted = Some(x);
-                }
-
-                // Draw a vertical magenta line at each inverted column
-                for y in 0..height {
-                    let existing = pixels.read_pixel(x, y);
-                    let er = (existing >> 16) as u8;
-                    let eg = (existing >> 8) as u8;
-                    let eb = existing as u8;
-                    let r = 255u8 / 2 + er / 2;
-                    let g = eg / 2;
-                    let b = 255u8 / 2 + eb / 2;
-                    let pixel = (r as u32) << 16 | (g as u32) << 8 | b as u32;
-                    pixels.set_pixel(x, y, pixel);
-                }
-            }
-        }
-
-        if inverted_count > 0 {
-            warn!(
-                "CLIP INVERSION: Found {} columns with ceiling >= floor. First at x={}",
-                inverted_count,
-                first_inverted.unwrap()
-            );
-        }
-    }
 }

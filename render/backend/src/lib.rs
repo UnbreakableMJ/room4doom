@@ -6,7 +6,8 @@ use level::LevelData;
 use pic_data::{PicData, VoxelManager};
 use render_common::wipe::Wipe;
 use render_common::{
-    BufferSize, DrawBuffer as DrawBufferTrait, GameRenderer, RenderView, build_vignette_alpha_lut,
+    BufferSize, DrawBuffer as DrawBufferTrait, GameRenderer, HealthVignette, RenderView,
+    ScreenEffect,
 };
 use software3d::{DebugDrawOptions, Software3D};
 use software25d::Software25D;
@@ -112,14 +113,6 @@ impl DisplayBackend {
 pub struct RenderTarget {
     renderer: Renderer,
     framebuffer: FrameBuffer,
-    /// Radial-distance LUT for the health vignette, keyed by the
-    /// `(width, view_height)` it was built for; rebuilt on size change.
-    vignette_lut: Vec<f32>,
-    vignette_dims: (usize, usize),
-    /// Quantised distance→alpha table; rebuilt only when `vignette_health`
-    /// changes.
-    vignette_alpha_lut: [u32; 256],
-    vignette_health: i32,
 }
 
 impl RenderTarget {
@@ -162,10 +155,6 @@ impl RenderTarget {
                     debug_draw.clone(),
                 ))),
             },
-            vignette_lut: Vec::new(),
-            vignette_dims: (0, 0),
-            vignette_alpha_lut: [0; 256],
-            vignette_health: 100,
         }
     }
 
@@ -280,40 +269,13 @@ impl GameRenderer for RenderTarget {
         &self.framebuffer.buffer.size
     }
 
-    fn vignette_lut(&mut self) -> &[f32] {
+    fn set_health_vignette(&mut self, health: i32) {
         let size = &self.framebuffer.buffer.size;
-        let dims = (size.width_usize(), size.view_height_usize());
-        if self.vignette_dims != dims {
-            self.vignette_lut = self.build_vignette_lut();
-            self.vignette_dims = dims;
-        }
-        &self.vignette_lut
-    }
-
-    fn draw_health_vignette(&mut self, health: i32) {
-        let Some((start, max_alpha)) = Self::vignette_params(health) else {
-            return;
-        };
-        // Rebuild the distance LUT on a size change and the alpha LUT on a
-        // health change; both cached. Then hoist the disjoint field borrows
-        // for the blend.
-        self.vignette_lut();
-        if self.vignette_health != health {
-            self.vignette_alpha_lut = build_vignette_alpha_lut(start, max_alpha);
-            self.vignette_health = health;
-        }
-        let size = &self.framebuffer.buffer.size;
-        let (width, view_height) = (size.width_usize(), size.view_height_usize());
-        let pitch = self.framebuffer.buffer.pitch();
-        Self::blend_vignette(
-            &mut self.framebuffer.buffer.buffer,
-            &self.vignette_lut,
-            &self.vignette_alpha_lut,
-            pitch,
-            width,
-            view_height,
-            health > 100,
-        );
+        let (width, height) = (size.width_usize(), size.height_usize());
+        self.framebuffer
+            .buffer
+            .vignette
+            .update(health, width, height);
     }
 }
 
@@ -325,6 +287,9 @@ pub(crate) struct DrawBuffer {
     /// Pixel buffer in `0xFFRRGGBB` format (ARGB, fully opaque). The resolve
     /// target and the surface HUD/menu/wipe draw onto.
     pub(crate) buffer: Vec<u32>,
+    /// Health vignette, applied per-pixel during [`DrawBuffer::resolve`].
+    /// Inactive at 100 HP (resolve takes the plain-copy fast path).
+    pub(crate) vignette: HealthVignette,
 }
 
 impl DrawBuffer {
@@ -333,17 +298,36 @@ impl DrawBuffer {
             size: BufferSize::new(width, height),
             index: vec![0u8; width * height + 1],
             buffer: vec![0xFF_00_00_00; width * height + 1],
+            vignette: HealthVignette::default(),
         }
     }
 
-    /// Resolve the index plane into the u32 buffer: `buffer[i] = palette[index[i]]`.
-    /// The scene fully overwrites the index plane each frame (no transparency),
-    /// so no clear is needed. `palette` is the current scanout palette (gameplay
-    /// `use_pallette`).
+    /// Resolve the index plane into the u32 buffer: `buffer[i] = palette[index[i]]`,
+    /// applying any active screen effects per pixel. The scene fully overwrites
+    /// the index plane each frame (no transparency), so no clear is needed.
+    /// `palette` is the current scanout palette (gameplay `use_pallette`).
     #[inline]
     pub fn resolve(&mut self, palette: &[u32]) {
-        for (out, &idx) in self.buffer.iter_mut().zip(self.index.iter()) {
-            *out = unsafe { *palette.get_unchecked(idx as usize) };
+        if !self.vignette.is_active() {
+            for (out, &idx) in self.buffer.iter_mut().zip(self.index.iter()) {
+                *out = unsafe { *palette.get_unchecked(idx as usize) };
+            }
+            return;
+        }
+        // Effect path: resolve then apply each effect to the pixel before the
+        // store — a pure write, no buffer re-read. Add future effects as more
+        // concrete `if e.is_active() { c = e.apply(c, x, y) }` lines.
+        let width = self.size.width_usize();
+        let count = width * self.size.height_usize();
+        for i in 0..count {
+            let idx = unsafe { *self.index.get_unchecked(i) };
+            let mut c = unsafe { *palette.get_unchecked(idx as usize) };
+            let x = i % width;
+            let y = i / width;
+            c = self.vignette.apply(c, x, y);
+            unsafe {
+                *self.buffer.get_unchecked_mut(i) = c;
+            }
         }
     }
 

@@ -48,6 +48,140 @@ const VIG_DIST_MAX: f32 = 1.414;
 const VIG_DIST_QUANT: f32 = 255.0 / VIG_DIST_MAX;
 
 // =============================================================================
+// Screen effects
+// =============================================================================
+
+/// A per-pixel scanout effect, applied inside the index→u32 resolve:
+/// `out[i] = effect.apply(palette[idx[i]], x, y)`. `pixel` is `0xFFRRGGBB`.
+/// Hot path — `apply` is called per pixel; concrete (monomorphic), no dyn.
+pub trait ScreenEffect {
+    /// Transform one resolved pixel at view coords `(x, y)`.
+    fn apply(&self, pixel: u32, x: usize, y: usize) -> u32;
+    /// Resolve takes a plain-copy fast path when this is false.
+    fn is_active(&self) -> bool {
+        true
+    }
+}
+
+/// Health-based radial vignette, applied during the scanout resolve.
+/// - 0–99 HP: dark red vignette creeping inward (stronger at lower health)
+/// - 100 HP: inactive (no effect)
+/// - 101–200 HP: subtle gold glow at the edges (stronger at higher overhealth)
+///
+/// Owns its LUTs and the dims they were built for; [`Self::update`] rebuilds
+/// the radial-distance LUT only on a size change and the alpha LUT only on a
+/// health change. `apply` is a pure two-load lookup per pixel.
+pub struct HealthVignette {
+    /// Normalised radial distance from the centre, `dist_lut[y * width + x]`.
+    dist_lut: Vec<f32>,
+    /// Quantised distance → blend weight (`a256`, 0..=256).
+    alpha_lut: [u32; 256],
+    /// Additive gold glow (overhealth) vs convex red tint (damage).
+    glow: bool,
+    width: usize,
+    height: usize,
+    /// `(start, max_alpha)` the alpha LUT was built for; `None` = inactive.
+    params: Option<(f32, f32)>,
+}
+
+impl Default for HealthVignette {
+    fn default() -> Self {
+        Self {
+            dist_lut: Vec::new(),
+            alpha_lut: [0; 256],
+            glow: false,
+            width: 0,
+            height: 0,
+            params: None,
+        }
+    }
+}
+
+impl HealthVignette {
+    /// Refresh for the next frame. Rebuilds the radial LUT on a `(width,
+    /// height)` change and the alpha LUT on a `(start, max_alpha)` change.
+    /// `health == 100` clears the effect (`is_active` becomes false).
+    pub fn update(&mut self, health: i32, width: usize, height: usize) {
+        if width != self.width || height != self.height {
+            self.dist_lut = build_vignette_lut(width, height);
+            self.width = width;
+            self.height = height;
+        }
+        let params = vignette_params(health);
+        if params != self.params {
+            if let Some((start, max_alpha)) = params {
+                self.alpha_lut = build_vignette_alpha_lut(start, max_alpha);
+            }
+            self.glow = health > 100;
+            self.params = params;
+        }
+    }
+}
+
+impl ScreenEffect for HealthVignette {
+    #[inline(always)]
+    fn apply(&self, pixel: u32, x: usize, y: usize) -> u32 {
+        let q = (self.dist_lut[y * self.width + x] * VIG_DIST_QUANT) as usize;
+        let a256 = self.alpha_lut[q.min(255)];
+        if a256 == 0 {
+            return pixel;
+        }
+        let inv = 256 - a256;
+        if self.glow {
+            glow_blend_pixel(pixel, inv, a256)
+        } else {
+            tint_blend_pixel(pixel, inv, a256)
+        }
+    }
+
+    #[inline(always)]
+    fn is_active(&self) -> bool {
+        self.params.is_some()
+    }
+}
+
+/// Per-pixel radial-distance LUT: `lut[y * width + x]` is the normalised
+/// distance from the centre. Geometry only — cached by [`HealthVignette`].
+fn build_vignette_lut(width: usize, height: usize) -> Vec<f32> {
+    let half_w = width as f32 * 0.5;
+    let half_h = height as f32 * 0.5;
+    let inv_half_w = 1.0 / half_w;
+    let inv_half_h = 1.0 / half_h;
+
+    let mut lut = vec![0.0f32; width * height];
+    for y in 0..height {
+        let dy = (y as f32 - half_h) * inv_half_h;
+        let dy2 = dy * dy;
+        let row = y * width;
+        for x in 0..width {
+            let dx = (x as f32 - half_w) * inv_half_w;
+            lut[row + x] = (dx * dx + dy2).sqrt();
+        }
+    }
+    lut
+}
+
+/// Compute the `(start, max_alpha)` blend parameters for `health`, or `None`
+/// at 100 HP (no vignette).
+fn vignette_params(health: i32) -> Option<(f32, f32)> {
+    if health == 100 {
+        None
+    } else if health < 100 {
+        let t = health.max(0) as f32 / 100.0;
+        Some((
+            VIG_START_DEATH + VIG_START_FULL * t * t,
+            VIG_ALPHA_MIN + (VIG_ALPHA_MAX - VIG_ALPHA_MIN) * (1.0 - t),
+        ))
+    } else {
+        let excess = ((health - 100) as f32 / 100.0).min(1.0);
+        Some((
+            VIG_GLOW_START + (VIG_START_FULL - VIG_GLOW_START) * (1.0 - excess),
+            VIG_GLOW_ALPHA * excess,
+        ))
+    }
+}
+
+// =============================================================================
 // Traits
 // =============================================================================
 
@@ -78,115 +212,10 @@ pub trait GameRenderer {
 
     fn buffer_size(&self) -> &BufferSize;
 
-    /// Return the cached radial-distance LUT for the health vignette,
-    /// rebuilding it (via [`GameRenderer::build_vignette_lut`]) when the view
-    /// size changes. Impls own the cache storage.
-    fn vignette_lut(&mut self) -> &[f32];
-
-    /// Draw the cached health vignette for the current view. Impls hoist their
-    /// disjoint framebuffer / LUT field borrows and call
-    /// [`Self::blend_vignette`].
-    fn draw_health_vignette(&mut self, health: i32);
-
-    /// Build the per-pixel radial-distance LUT for the health vignette, sized
-    /// to the current view. `lut[y * width + x]` is the normalised distance
-    /// from the view centre — geometry only, so impls cache it and rebuild
-    /// only when the view size changes.
-    fn build_vignette_lut(&self) -> Vec<f32> {
-        let size = self.buffer_size();
-        let width = size.width_usize();
-        let view_height = size.view_height_usize();
-        let half_w = width as f32 * 0.5;
-        let half_h = view_height as f32 * 0.5;
-        let inv_half_w = 1.0 / half_w;
-        let inv_half_h = 1.0 / half_h;
-
-        let mut lut = vec![0.0f32; width * view_height];
-        for y in 0..view_height {
-            let dy = (y as f32 - half_h) * inv_half_h;
-            let dy2 = dy * dy;
-            let row = y * width;
-            for x in 0..width {
-                let dx = (x as f32 - half_w) * inv_half_w;
-                lut[row + x] = (dx * dx + dy2).sqrt();
-            }
-        }
-        lut
-    }
-
-    /// Apply a health-based vignette to the view area using a pre-built
-    /// radial-distance `lut` (from [`GameRenderer::build_vignette_lut`], sized
-    /// `width * view_height`).
-    /// - 100 HP: no effect
-    /// - 0–99 HP: dark red vignette creeping inward (stronger at lower health)
-    /// - 101–200 HP: subtle gold glow at edges (stronger at higher overhealth)
-    ///
-    /// `self`-free so the caller can hoist disjoint `&mut buf` / `&lut`
-    /// borrows from its own fields without the borrow checker conflating them.
-    fn blend_vignette(
-        buf: &mut [u32],
-        dist_lut: &[f32],
-        alpha_lut: &[u32; 256],
-        pitch: usize,
-        width: usize,
-        view_height: usize,
-        glow: bool,
-    ) {
-        if glow {
-            for y in 0..view_height {
-                let row = y * pitch;
-                let lut_row = y * width;
-                for x in 0..width {
-                    let idx = (dist_lut[lut_row + x] * VIG_DIST_QUANT) as usize;
-                    let a256 = alpha_lut[idx.min(255)];
-                    if a256 == 0 {
-                        continue;
-                    }
-                    let inv = 256 - a256;
-                    let pixel = buf[row + x];
-                    let new = glow_blend_pixel(pixel, inv, a256);
-                    buf[row + x] = new;
-                }
-            }
-        } else {
-            // Tint is a convex blend (inv + a256 == 256, no per-channel
-            // saturation), so R+B and G can be blended two-at-a-time via SWAR:
-            // products stay within their byte lanes and never overflow u32.
-            for y in 0..view_height {
-                let row = y * pitch;
-                let lut_row = y * width;
-                for x in 0..width {
-                    let idx = (dist_lut[lut_row + x] * VIG_DIST_QUANT) as usize;
-                    let a256 = alpha_lut[idx.min(255)];
-                    if a256 == 0 {
-                        continue;
-                    }
-                    let inv = 256 - a256;
-                    buf[row + x] = tint_blend_pixel(buf[row + x], inv, a256);
-                }
-            }
-        }
-    }
-
-    /// Compute the `(start, max_alpha)` blend parameters for `health`, or
-    /// `None` at 100 HP (no vignette).
-    fn vignette_params(health: i32) -> Option<(f32, f32)> {
-        if health == 100 {
-            None
-        } else if health < 100 {
-            let t = health.max(0) as f32 / 100.0;
-            Some((
-                VIG_START_DEATH + VIG_START_FULL * t * t,
-                VIG_ALPHA_MIN + (VIG_ALPHA_MAX - VIG_ALPHA_MIN) * (1.0 - t),
-            ))
-        } else {
-            let excess = ((health - 100) as f32 / 100.0).min(1.0);
-            Some((
-                VIG_GLOW_START + (VIG_START_FULL - VIG_GLOW_START) * (1.0 - excess),
-                VIG_GLOW_ALPHA * excess,
-            ))
-        }
-    }
+    /// Update the health vignette effect for the next scanout. The effect is
+    /// applied per-pixel during the index→u32 resolve (no separate pass). Pass
+    /// 100 to clear it.
+    fn set_health_vignette(&mut self, health: i32);
 }
 
 /// Convex damage-tint blend of one `0x00RRGGBB` pixel (R+B and G blended
@@ -272,6 +301,62 @@ mod vignette_tests {
                 assert_eq!(swar, scalar, "pixel {pixel:#010X}, a256 {a256}");
             }
         }
+    }
+
+    use super::{HealthVignette, ScreenEffect};
+
+    const W: usize = 64;
+    const H: usize = 40;
+    const GREY: u32 = 0xFF80_8080;
+
+    /// At full health the effect is inactive and `apply` is a passthrough, so
+    /// the resolve takes the plain-copy fast path.
+    #[test]
+    fn full_health_inactive() {
+        let mut v = HealthVignette::default();
+        v.update(100, W, H);
+        assert!(!v.is_active());
+        assert_eq!(v.apply(GREY, 0, 0), GREY);
+        assert_eq!(v.apply(GREY, W / 2, H / 2), GREY);
+    }
+
+    /// Damage activates the tint: a corner pixel (max radial distance) is
+    /// pushed toward dark red, while the exact centre (distance 0) is untouched.
+    #[test]
+    fn damage_tints_edges_not_centre() {
+        let mut v = HealthVignette::default();
+        v.update(10, W, H);
+        assert!(v.is_active());
+        let centre = v.apply(GREY, W / 2, H / 2);
+        let corner = v.apply(GREY, 0, 0);
+        assert_eq!(centre, GREY, "centre pixel must be untouched");
+        assert_ne!(corner, GREY, "corner pixel must be tinted");
+        // Convex red tint: green/blue darken, output stays opaque.
+        assert_eq!(corner & 0xFF00_0000, 0xFF00_0000);
+        assert!(
+            (corner >> 8) & 0xFF <= 0x80,
+            "green channel must not brighten"
+        );
+    }
+
+    /// Overhealth activates the additive gold glow at the edges.
+    #[test]
+    fn overhealth_glows() {
+        let mut v = HealthVignette::default();
+        v.update(200, W, H);
+        assert!(v.is_active());
+        let corner = v.apply(GREY, 0, 0);
+        assert_ne!(corner, GREY, "corner pixel must glow");
+    }
+
+    /// Re-updating to 100 clears a previously active effect.
+    #[test]
+    fn clears_when_restored() {
+        let mut v = HealthVignette::default();
+        v.update(10, W, H);
+        assert!(v.is_active());
+        v.update(100, W, H);
+        assert!(!v.is_active());
     }
 }
 
@@ -457,4 +542,3 @@ pub fn og_projection(base_hfov: f32, buf_width: f32, buf_height: f32) -> (f32, f
     let vfov = 2.0 * ((buf_height / 2.0) / focal_length).atan();
     (hfov, vfov, focal_length)
 }
-

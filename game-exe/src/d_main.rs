@@ -307,11 +307,15 @@ pub(crate) fn d_display<R: GameRenderer>(
                         player.status.powers[gameplay::PowerType::Strength as usize],
                         player.status.powers[gameplay::PowerType::IronFeet as usize],
                     );
-                    render_backend.render_player_view(&view, &level.level_data, &mut game.pic_data);
+                    // Set the health vignette before the view render so it is
+                    // applied during the scanout resolve (100 = no effect).
                     if game.config_values[gamestate_traits::ConfigKey::HealthVignette as usize] != 0
                     {
-                        render_backend.draw_health_vignette(player.status.health);
+                        render_backend.set_health_vignette(player.status.health);
+                    } else {
+                        render_backend.set_health_vignette(100);
                     }
+                    render_backend.render_player_view(&view, &level.level_data, &mut game.pic_data);
                 } else {
                     error!("Active console player has no MapObject, can't render player view");
                 }
