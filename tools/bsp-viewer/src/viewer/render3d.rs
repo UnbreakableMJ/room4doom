@@ -92,7 +92,7 @@ impl DrawBuffer for FrameBuffer {
     fn index_mut(&mut self) -> &mut [u8] {
         &mut self.index
     }
-    fn resolve(&mut self, palette: &[u32]) {
+    fn resolve(&mut self, palette: &[u32], _palettes_flat: &[u32]) {
         for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
             *out = palette[idx as usize];
         }

@@ -60,7 +60,7 @@ pub enum ConfigKey {
     HudWidth,
     HudMsgMode,
     HudMsgTime,
-    HealthVignette,
+    HealthBleed,
     MouseSensitivity,
     InvertY,
     KeyCount,

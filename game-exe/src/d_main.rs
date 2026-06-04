@@ -253,7 +253,7 @@ pub(crate) fn update_sound(game: &Game) {
     }
 }
 
-fn page_drawer(game: &mut Game, draw_buf: &mut impl DrawBuffer) {
+fn page_drawer(game: &Game, draw_buf: &mut impl DrawBuffer) {
     draw_buf.buf_mut().fill(BLACK);
     let (sx, sy) = fullscreen_scale(draw_buf);
     let x = (draw_buf.size().width_f32() - 320.0 * sx) / 2.0;
@@ -278,6 +278,8 @@ pub(crate) fn d_display<R: GameRenderer>(
     if wipe {
         // Capture old frame on first wipe frame
         render_backend.start_wipe();
+        // Fresh bleed pattern on a new level / game state.
+        render_backend.reset_health_bleed();
     }
     // Disable interpolation during wipe — the old frame covers the transition
     // and prev state may not be valid for the new level.
@@ -307,13 +309,13 @@ pub(crate) fn d_display<R: GameRenderer>(
                         player.status.powers[gameplay::PowerType::Strength as usize],
                         player.status.powers[gameplay::PowerType::IronFeet as usize],
                     );
-                    // Set the health vignette before the view render so it is
+                    // Set the health bleed before the view render so it is
                     // applied during the scanout resolve (100 = no effect).
-                    if game.config_values[gamestate_traits::ConfigKey::HealthVignette as usize] != 0
+                    if game.config_values[gamestate_traits::ConfigKey::HealthBleed as usize] != 0
                     {
-                        render_backend.set_health_vignette(player.status.health);
+                        render_backend.set_health_bleed(player.status.health);
                     } else {
-                        render_backend.set_health_vignette(100);
+                        render_backend.set_health_bleed(100);
                     }
                     render_backend.render_player_view(&view, &level.level_data, &mut game.pic_data);
                 } else {

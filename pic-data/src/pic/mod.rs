@@ -544,6 +544,19 @@ impl PicData {
         &self.palettes[self.use_pallette].0
     }
 
+    /// All palettes as one `PALLETE_LEN * 256` slice, `[pal * 256 + colour]`.
+    #[inline(always)]
+    pub fn palettes_flat(&self) -> &[WadColour] {
+        // SAFETY: `WadPalette` is a newtype over `[WadColour; 256]`, so the
+        // array is already contiguous `PALLETE_LEN * 256` colours.
+        unsafe {
+            std::slice::from_raw_parts(
+                self.palettes.as_ptr() as *const WadColour,
+                PALLETE_LEN * 256,
+            )
+        }
+    }
+
     #[inline(always)]
     pub const fn wad_palette(&self) -> &WadPalette {
         &self.palettes[self.use_pallette]

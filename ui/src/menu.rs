@@ -503,7 +503,7 @@ impl GameMenu {
                     MenuItem::toggle(lang::OPT_FRAME_INTERP, ConfigKey::FrameInterpolation),
                     MenuItem::toggle(lang::OPT_VOXELS, ConfigKey::Voxels),
                     MenuItem::toggle(lang::OPT_CRT_GAMMA, ConfigKey::CrtGamma),
-                    MenuItem::toggle(lang::OPT_HEALTH_VIG, ConfigKey::HealthVignette),
+                    MenuItem::toggle(lang::OPT_HEALTH_BLEED, ConfigKey::HealthBleed),
                     MenuItem::toggle(lang::OPT_SHOW_FPS, ConfigKey::ShowFps),
                 ],
             ),

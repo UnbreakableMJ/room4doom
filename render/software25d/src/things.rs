@@ -14,8 +14,8 @@ use render_common::{DrawBuffer, FUZZ_TABLE, RenderPspDef, RenderView};
 
 use super::bsp::Software25D;
 use super::defs::DrawSeg;
-use super::utilities::inner_to_i32;
 use super::segs::SegRender;
+use super::utilities::inner_to_i32;
 
 const FF_FULLBRIGHT: u32 = 0x8000;
 const FF_FRAMEMASK: u32 = 0x7FFF;

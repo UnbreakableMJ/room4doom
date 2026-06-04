@@ -1153,7 +1153,7 @@ impl Software3D {
             // The debug colour modes (clear_colour set) write true-colour u32
             // directly and must not be resolved.
             if self.debug.options.clear_colour.is_none() {
-                buffer.resolve(pic_data.palette());
+                buffer.resolve(pic_data.palette(), pic_data.palettes_flat());
             }
 
             // Debug: draw polygon outlines / wireframe as post-render overlay

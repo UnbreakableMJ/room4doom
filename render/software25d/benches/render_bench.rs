@@ -67,7 +67,7 @@ impl DrawBuffer for HeadlessBuffer {
     fn index_mut(&mut self) -> &mut [u8] {
         &mut self.index
     }
-    fn resolve(&mut self, palette: &[u32]) {
+    fn resolve(&mut self, palette: &[u32], _palettes_flat: &[u32]) {
         for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
             *out = palette[idx as usize];
         }
@@ -164,9 +164,11 @@ fn benches(c: &mut Criterion) {
         bench_scene(c, "sw25d/e1m2/320x200", &mut level, &mut pics, LOW);
         bench_scene(c, "sw25d/e1m2/1280x800", &mut level, &mut pics, HI);
     }
-    if let Some((mut level, mut pics)) =
-        load_pwad(&test_utils::doom_wad_path(), &test_utils::sigil2_wad_path(), "E6M6")
-    {
+    if let Some((mut level, mut pics)) = load_pwad(
+        &test_utils::doom_wad_path(),
+        &test_utils::sigil2_wad_path(),
+        "E6M6",
+    ) {
         bench_scene(c, "sw25d/e6m6/320x200", &mut level, &mut pics, LOW);
         bench_scene(c, "sw25d/e6m6/1280x800", &mut level, &mut pics, HI);
     }

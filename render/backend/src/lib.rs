@@ -6,8 +6,7 @@ use level::LevelData;
 use pic_data::{PicData, VoxelManager};
 use render_common::wipe::Wipe;
 use render_common::{
-    BufferSize, DrawBuffer as DrawBufferTrait, GameRenderer, HealthVignette, RenderView,
-    ScreenEffect,
+    BufferSize, DrawBuffer as DrawBufferTrait, GameRenderer, HealthBleed, RenderView, ScreenEffect,
 };
 use software3d::{DebugDrawOptions, Software3D};
 use software25d::Software25D;
@@ -56,30 +55,30 @@ impl DisplayBackend {
     /// Create an SDL2 display backend from a canvas.
     #[cfg(feature = "display-sdl2")]
     pub fn new_sdl2(canvas: sdl2::render::Canvas<sdl2::video::Window>) -> Self {
-        DisplayBackend::Sdl2(sdl2_backend::Sdl2Display::from_canvas(canvas))
+        Self::Sdl2(sdl2_backend::Sdl2Display::from_canvas(canvas))
     }
 
     /// Create a softbuffer display backend from a winit window.
     #[cfg(feature = "display-softbuffer")]
     pub fn new_softbuffer(window: Arc<winit::window::Window>) -> Self {
-        DisplayBackend::Softbuffer(softbuffer_backend::SoftbufferDisplay::new(window))
+        Self::Softbuffer(softbuffer_backend::SoftbufferDisplay::new(window))
     }
 
     /// Create a pixels (wgpu) display backend from a winit window.
     #[cfg(feature = "display-pixels")]
     pub fn new_pixels(window: std::sync::Arc<winit::window::Window>, vsync: bool) -> Self {
-        DisplayBackend::Pixels(pixels_backend::PixelsDisplay::new(window, vsync))
+        Self::Pixels(pixels_backend::PixelsDisplay::new(window, vsync))
     }
 
     /// Present the buffer to the screen.
     fn blit(&mut self, buffer: &DrawBuffer) {
         match self {
             #[cfg(feature = "display-sdl2")]
-            DisplayBackend::Sdl2(d) => d.blit(buffer),
+            Self::Sdl2(d) => d.blit(buffer),
             #[cfg(feature = "display-softbuffer")]
-            DisplayBackend::Softbuffer(d) => d.blit(buffer),
+            Self::Softbuffer(d) => d.blit(buffer),
             #[cfg(feature = "display-pixels")]
-            DisplayBackend::Pixels(d) => d.blit(buffer),
+            Self::Pixels(d) => d.blit(buffer),
         }
     }
 
@@ -87,11 +86,11 @@ impl DisplayBackend {
     pub fn set_fullscreen(&mut self, mode: u8) {
         match self {
             #[cfg(feature = "display-sdl2")]
-            DisplayBackend::Sdl2(d) => d.set_fullscreen(mode),
+            Self::Sdl2(d) => d.set_fullscreen(mode),
             #[cfg(feature = "display-softbuffer")]
-            DisplayBackend::Softbuffer(d) => d.set_fullscreen(mode),
+            Self::Softbuffer(d) => d.set_fullscreen(mode),
             #[cfg(feature = "display-pixels")]
-            DisplayBackend::Pixels(d) => d.set_fullscreen(mode),
+            Self::Pixels(d) => d.set_fullscreen(mode),
         }
     }
 
@@ -99,11 +98,11 @@ impl DisplayBackend {
     fn window_size(&self) -> (u32, u32) {
         match self {
             #[cfg(feature = "display-sdl2")]
-            DisplayBackend::Sdl2(d) => d.window_size(),
+            Self::Sdl2(d) => d.window_size(),
             #[cfg(feature = "display-softbuffer")]
-            DisplayBackend::Softbuffer(d) => d.window_size(),
+            Self::Softbuffer(d) => d.window_size(),
             #[cfg(feature = "display-pixels")]
-            DisplayBackend::Pixels(d) => d.window_size(),
+            Self::Pixels(d) => d.window_size(),
         }
     }
 }
@@ -122,7 +121,7 @@ impl RenderTarget {
         debug_draw: &DebugDrawOptions,
         display: DisplayBackend,
         render_type: RenderType,
-    ) -> RenderTarget {
+    ) -> Self {
         let size = display.window_size();
         // Buffer height is fixed at 200 (or 400 hi-res). Buffer width is chosen
         // so that when the blit scales buf_width->win_width and buf_height->win_height,
@@ -269,13 +268,14 @@ impl GameRenderer for RenderTarget {
         &self.framebuffer.buffer.size
     }
 
-    fn set_health_vignette(&mut self, health: i32) {
+    fn set_health_bleed(&mut self, health: i32) {
         let size = &self.framebuffer.buffer.size;
         let (width, height) = (size.width_usize(), size.height_usize());
-        self.framebuffer
-            .buffer
-            .vignette
-            .update(health, width, height);
+        self.framebuffer.buffer.bleed.update(health, width, height);
+    }
+
+    fn reset_health_bleed(&mut self) {
+        self.framebuffer.buffer.bleed.reset();
     }
 }
 
@@ -287,9 +287,9 @@ pub(crate) struct DrawBuffer {
     /// Pixel buffer in `0xFFRRGGBB` format (ARGB, fully opaque). The resolve
     /// target and the surface HUD/menu/wipe draw onto.
     pub(crate) buffer: Vec<u32>,
-    /// Health vignette, applied per-pixel during [`DrawBuffer::resolve`].
+    /// Health bleed, applied per-pixel during [`DrawBuffer::resolve`].
     /// Inactive at 100 HP (resolve takes the plain-copy fast path).
-    pub(crate) vignette: HealthVignette,
+    pub(crate) bleed: HealthBleed,
 }
 
 impl DrawBuffer {
@@ -298,35 +298,32 @@ impl DrawBuffer {
             size: BufferSize::new(width, height),
             index: vec![0u8; width * height + 1],
             buffer: vec![0xFF_00_00_00; width * height + 1],
-            vignette: HealthVignette::default(),
+            bleed: HealthBleed::default(),
         }
     }
 
-    /// Resolve the index plane into the u32 buffer: `buffer[i] = palette[index[i]]`,
-    /// applying any active screen effects per pixel. The scene fully overwrites
-    /// the index plane each frame (no transparency), so no clear is needed.
-    /// `palette` is the current scanout palette (gameplay `use_pallette`).
+    /// Fast path: `buffer[i] = palette[index[i]]`. Bleed active: per-pixel
+    /// palette select, `buffer[i] = palettes_flat[off*256 + index[i]]`.
     #[inline]
-    pub fn resolve(&mut self, palette: &[u32]) {
-        if !self.vignette.is_active() {
+    pub fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32]) {
+        if !self.bleed.is_active() {
             for (out, &idx) in self.buffer.iter_mut().zip(self.index.iter()) {
-                *out = unsafe { *palette.get_unchecked(idx as usize) };
+                *out = unsafe { *palette.get_unchecked(idx as u32 as usize) };
             }
             return;
         }
-        // Effect path: resolve then apply each effect to the pixel before the
-        // store — a pure write, no buffer re-read. Add future effects as more
-        // concrete `if e.is_active() { c = e.apply(c, x, y) }` lines.
         let width = self.size.width_usize();
-        let count = width * self.size.height_usize();
-        for i in 0..count {
-            let idx = unsafe { *self.index.get_unchecked(i) };
-            let mut c = unsafe { *palette.get_unchecked(idx as usize) };
-            let x = i % width;
-            let y = i / width;
-            c = self.vignette.apply(c, x, y);
-            unsafe {
-                *self.buffer.get_unchecked_mut(i) = c;
+        let height = self.size.height() as u16;
+        let mut i = 0;
+        for y in 0..height {
+            for x in 0..width {
+                let idx = unsafe { *self.index.get_unchecked(i) } as u32 as usize;
+                let off = self.bleed.palette_offset(x, y);
+                let c = unsafe { *palettes_flat.get_unchecked(off * 256 + idx) };
+                unsafe {
+                    *self.buffer.get_unchecked_mut(i) = c;
+                }
+                i += 1;
             }
         }
     }
@@ -451,8 +448,8 @@ impl render_common::DrawBuffer for FrameBuffer {
     }
 
     #[inline]
-    fn resolve(&mut self, palette: &[u32]) {
-        self.buffer.resolve(palette);
+    fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32]) {
+        self.buffer.resolve(palette, palettes_flat);
     }
 
     fn debug_flip_and_present(&mut self) {

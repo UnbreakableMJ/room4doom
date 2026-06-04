@@ -238,7 +238,7 @@ pub struct UserConfig {
     pub hud_width: HudWidth,
     pub hud_msg_mode: HudMsgMode,
     pub hud_msg_time: i32,
-    pub health_vignette: bool,
+    pub health_bleed: bool,
     pub mouse_sensitivity: i32,
     pub invert_y: bool,
     pub sf2_path: String,
@@ -293,7 +293,7 @@ impl UserConfig {
             menu_dim: true,
             hud_width: HudWidth::Classic,
             hud_msg_time: 2,
-            health_vignette: true,
+            health_bleed: true,
             mouse_sensitivity: 5,
             invert_y: false,
             sf2_path: "gm.sf2".to_string(),
@@ -363,7 +363,7 @@ impl UserConfig {
             HudMsgMode::Overwrite => 2,
         };
         a[ConfigKey::HudMsgTime as usize] = self.hud_msg_time;
-        a[ConfigKey::HealthVignette as usize] = self.health_vignette as i32;
+        a[ConfigKey::HealthBleed as usize] = self.health_bleed as i32;
         a[ConfigKey::MouseSensitivity as usize] = self.mouse_sensitivity;
         a[ConfigKey::InvertY as usize] = self.invert_y as i32;
         a
@@ -404,7 +404,7 @@ impl UserConfig {
             _ => HudMsgMode::Stack,
         };
         self.hud_msg_time = vals[ConfigKey::HudMsgTime as usize];
-        self.health_vignette = vals[ConfigKey::HealthVignette as usize] != 0;
+        self.health_bleed = vals[ConfigKey::HealthBleed as usize] != 0;
         self.mouse_sensitivity = vals[ConfigKey::MouseSensitivity as usize];
         self.invert_y = vals[ConfigKey::InvertY as usize] != 0;
     }

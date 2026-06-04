@@ -7,7 +7,7 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use math::{Angle, Bam, FixedT};
 use pic_data::PicData;
-use render_common::{BufferSize, DrawBuffer, RenderPspDef, RenderView};
+use render_common::{BufferSize, DrawBuffer, HealthBleed, RenderPspDef, RenderView, ScreenEffect};
 use software3d::{DebugDrawOptions, Software3D};
 use std::path::Path;
 use wad::WadData;
@@ -25,6 +25,8 @@ struct HeadlessBuffer {
     index: Vec<u8>,
     data: Vec<u32>,
     w: usize,
+    h: usize,
+    bleed: HealthBleed,
 }
 
 impl HeadlessBuffer {
@@ -34,10 +36,16 @@ impl HeadlessBuffer {
             index: vec![0u8; w * h],
             data: vec![0u32; w * h],
             w,
+            h,
+            bleed: HealthBleed::default(),
         }
     }
     fn any_drawn(&self) -> bool {
         self.index.iter().any(|&p| p != 0) || self.data.iter().any(|&p| p & 0x00FF_FFFF != 0)
+    }
+    /// Drive the health bleed for the next resolve (100 = inactive).
+    fn set_health_bleed(&mut self, health: i32) {
+        self.bleed.update(health, self.w, self.h);
     }
 }
 
@@ -66,9 +74,24 @@ impl DrawBuffer for HeadlessBuffer {
     fn index_mut(&mut self) -> &mut [u8] {
         &mut self.index
     }
-    fn resolve(&mut self, palette: &[u32]) {
-        for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
-            *out = palette[idx as usize];
+    fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32]) {
+        // Mirrors render-backend's DrawBuffer::resolve.
+        if !self.bleed.is_active() {
+            for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
+                *out = unsafe { *palette.get_unchecked(idx as usize) };
+            }
+            return;
+        }
+        let mut i = 0;
+        for y in 0..self.h as u16 {
+            for x in 0..self.w {
+                let idx = unsafe { *self.index.get_unchecked(i) } as usize;
+                let off = self.bleed.palette_offset(x, y);
+                unsafe {
+                    *self.data.get_unchecked_mut(i) = *palettes_flat.get_unchecked(off * 256 + idx);
+                }
+                i += 1;
+            }
         }
     }
     fn debug_flip_and_present(&mut self) {}
@@ -158,14 +181,44 @@ fn bench_scene(
     });
 }
 
+/// Time `resolve` alone over a pre-filled index plane to isolate the bleed
+/// cost: `none` (full health, fast path) vs `hurt`/`crit` (active).
+fn bench_resolve(
+    c: &mut Criterion,
+    prefix: &str,
+    level: &mut LevelData,
+    pics: &mut PicData,
+    (w, h): (usize, usize),
+) {
+    let mut renderer = Software3D::new(w as f32, h as f32, FOV, DebugDrawOptions::default());
+    let view = build_view(level);
+    let mut buffer = HeadlessBuffer::new(w, h);
+    // Fill the index plane once; the timed body only resolves.
+    renderer.draw_view(&view, level, pics, &mut buffer);
+    assert!(buffer.any_drawn(), "{prefix}: rendered a blank frame");
+    let palette = pics.palette().to_vec();
+    let palettes_flat = pics.palettes_flat().to_vec();
+
+    for (state, health) in [("none", 100), ("hurt", 50), ("crit", 5)] {
+        buffer.set_health_bleed(health);
+        c.bench_function(&format!("{prefix}/{state}"), |b| {
+            b.iter(|| buffer.resolve(&palette, &palettes_flat));
+        });
+    }
+}
+
 fn benches(c: &mut Criterion) {
     if let Some((mut level, mut pics)) = load_iwad(&test_utils::doom1_wad_path(), "E1M2") {
         bench_scene(c, "sw3d/e1m2/320x200", &mut level, &mut pics, LOW);
         bench_scene(c, "sw3d/e1m2/1280x800", &mut level, &mut pics, HI);
+        bench_resolve(c, "sw3d/resolve/320x200", &mut level, &mut pics, LOW);
+        bench_resolve(c, "sw3d/resolve/1280x800", &mut level, &mut pics, HI);
     }
-    if let Some((mut level, mut pics)) =
-        load_pwad(&test_utils::doom_wad_path(), &test_utils::sigil2_wad_path(), "E6M6")
-    {
+    if let Some((mut level, mut pics)) = load_pwad(
+        &test_utils::doom_wad_path(),
+        &test_utils::sigil2_wad_path(),
+        "E6M6",
+    ) {
         bench_scene(c, "sw3d/e6m6/320x200", &mut level, &mut pics, LOW);
         bench_scene(c, "sw3d/e6m6/1280x800", &mut level, &mut pics, HI);
     }

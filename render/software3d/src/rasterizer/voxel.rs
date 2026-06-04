@@ -429,7 +429,7 @@ impl Rasterizer {
                                         let offset = FUZZ_TABLE[*fuzz_pos % FUZZ_TABLE.len()];
                                         let src_y = (py + offset).clamp(0, h_clamp) as usize;
                                         buffer[row + ux] =
-                                        colourmap6[buffer[src_y * pitch + ux] as usize] as u8;
+                                            colourmap6[buffer[src_y * pitch + ux] as usize] as u8;
                                         *fuzz_pos += 1;
                                         self.depth_buffer.set_depth_update_hiz(
                                             ux,

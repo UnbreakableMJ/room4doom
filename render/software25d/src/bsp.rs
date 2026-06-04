@@ -140,7 +140,7 @@ impl Software25D {
 
         // Resolve the 8-bit scene index plane to the u32 buffer using the
         // current scanout palette (damage/bonus/rad tint applied here).
-        rend.resolve(pic_data.palette());
+        rend.resolve(pic_data.palette(), pic_data.palettes_flat());
     }
 
     pub fn new(fov: f32, width: f32, height: f32, hi_res: bool, debug: bool) -> Software25D {

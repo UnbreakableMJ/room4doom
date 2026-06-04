@@ -23,9 +23,7 @@ fn test_door_vertex_sharing() {
     let mut tracked_linedefs = HashMap::new();
     for (seg_idx, segment) in segments.iter().enumerate() {
         let linedef = &*segment.linedef;
-        let linedef_id = linedefs
-            .iter()
-            .position(|ld| std::ptr::eq(ld, linedef));
+        let linedef_id = linedefs.iter().position(|ld| std::ptr::eq(ld, linedef));
 
         if let Some(ld_id) = linedef_id
             && [148, 150, 151, 152, 153].contains(&ld_id)
