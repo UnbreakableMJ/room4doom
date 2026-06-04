@@ -1,5 +1,5 @@
 use pic_data::PicData;
-use render_common::{DrawBuffer, FUZZ_TABLE, RenderPspDef, RenderView, fuzz_darken};
+use render_common::{DrawBuffer, FUZZ_TABLE, RenderPspDef, RenderView};
 
 use crate::Software3D;
 
@@ -144,6 +144,8 @@ impl Software3D {
         } else {
             None
         };
+        // Fixed darkening colourmap for the spectre/shadow fuzz effect.
+        let colourmap6 = pic_data.colourmap(6);
 
         // Clamp draw region to screen bounds
         let draw_x1 = x1.max(0.0).ceil() as usize;
@@ -187,16 +189,14 @@ impl Software3D {
                 }
 
                 if let Some(colourmap) = colourmap {
-                    let lit_index = colourmap[color_index as usize];
-                    if let Some(&color) = pic_data.palette().get(lit_index) {
-                        buffer.set_pixel(x, y, color);
-                    }
+                    buffer.set_index(x, y, colourmap[color_index as usize] as u8);
                 } else {
+                    // OG spectre fuzz: darken a neighbour's index via colourmap 6.
                     let pitch = buffer.pitch();
-                    let buf = buffer.buf_mut();
+                    let idx = buffer.index_mut();
                     let offset = FUZZ_TABLE[self.fuzz_pos % FUZZ_TABLE.len()];
                     let src_y = (y as i32 + offset).clamp(0, height as i32 - 1) as usize;
-                    buf[y * pitch + x] = fuzz_darken(buf[src_y * pitch + x]);
+                    idx[y * pitch + x] = colourmap6[idx[src_y * pitch + x] as usize] as u8;
                     self.fuzz_pos += 1;
                 }
             }

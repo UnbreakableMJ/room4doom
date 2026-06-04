@@ -227,8 +227,9 @@ pub(crate) struct SkyRend {
     last_pic: usize,
     /// Horizontal FOV in radians, derived from the projection matrix.
     pub(crate) h_fov: f32,
-    /// Combined RGBA sky buffer (column-major): original rows + extensions.
-    pub(crate) extended: Vec<u32>,
+    /// Combined sky buffer of palette indices (column-major): original rows +
+    /// extensions, gradient quantized to nearest palette index.
+    pub(crate) extended: Vec<u8>,
     /// Height of the original sky texture.
     pub(crate) tex_height: usize,
     /// Generated rows above the original texture.
@@ -495,10 +496,10 @@ impl Software3D {
                 if self.rasterizer.depth_buffer.peek_depth_unchecked(x, y) <= SKY_DEPTH {
                     let sky_col = (self.sky.x_offset + x as f32 * self.sky.x_step)
                         .rem_euclid(sky_w as f32) as usize;
-                    if let Some(color) =
+                    if let Some(idx) =
                         sample_sky_pixel(sky_col, sky_r, sky_tex_height, sky_combined)
                     {
-                        buffer.set_pixel(x, y, color);
+                        buffer.set_index(x, y, idx);
                     }
                 }
             }
@@ -1146,6 +1147,14 @@ impl Software3D {
 
             // Draw player weapon overlay on top of everything
             self.draw_player_weapons(view, pic_data, buffer);
+
+            // Resolve the 8-bit scene index plane to the u32 buffer using the
+            // current scanout palette (damage/bonus/rad tint applied here).
+            // The debug colour modes (clear_colour set) write true-colour u32
+            // directly and must not be resolved.
+            if self.debug.options.clear_colour.is_none() {
+                buffer.resolve(pic_data.palette());
+            }
 
             // Debug: draw polygon outlines / wireframe as post-render overlay
             if self.debug.options.outline || self.debug.options.wireframe {

@@ -197,13 +197,34 @@ fn build_drift(width: usize, rows: usize, max_drift: f32, smoothness: f32, seed:
     drift
 }
 
+/// Nearest Doom palette index for an `0xFFRRGGBB` colour (RGB squared distance).
+/// Used to quantize the sky's interpolated gradient into the index plane.
+fn nearest_palette_index(colour: u32, palette: &[u32]) -> u8 {
+    let r = ((colour >> 16) & 0xFF) as i32;
+    let g = ((colour >> 8) & 0xFF) as i32;
+    let b = (colour & 0xFF) as i32;
+    let mut best_dist = i32::MAX;
+    let mut best = 0u8;
+    for (i, &p) in palette.iter().take(256).enumerate() {
+        let dr = r - ((p >> 16) & 0xFF) as i32;
+        let dg = g - ((p >> 8) & 0xFF) as i32;
+        let db = b - (p & 0xFF) as i32;
+        let dist = dr * dr + dg * dg + db * db;
+        if dist < best_dist {
+            best_dist = dist;
+            best = i as u8;
+        }
+    }
+    best
+}
+
 pub(crate) fn build_sky_combined(
     data: &[u16],
     width: usize,
     height: usize,
     colourmap: &[usize],
     palette: &[u32],
-) -> Vec<u32> {
+) -> Vec<u8> {
     let up_rows = SKY_EXTEND_ROWS;
     let dn_rows = SKY_DOWN_ROWS;
     let source_rows = SKY_SOURCE_ROWS.min(height / 2).max(2);
@@ -310,5 +331,17 @@ pub(crate) fn build_sky_combined(
         }
     }
 
+    // Quantize the fully-built u32 gradient into palette indices for the index
+    // plane. Done once per sky-texture change (map load), so cost is irrelevant.
+    // A texel of 0 (transparent in the source) maps to palette index 0.
     combined
+        .iter()
+        .map(|&c| {
+            if c == 0 {
+                0
+            } else {
+                nearest_palette_index(c, palette)
+            }
+        })
+        .collect()
 }

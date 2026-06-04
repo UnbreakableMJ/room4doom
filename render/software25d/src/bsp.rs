@@ -137,6 +137,10 @@ impl Software25D {
         profile!("draw_masked");
         self.draw_masked(view, pic_data, rend);
         // TODO: netupdate again
+
+        // Resolve the 8-bit scene index plane to the u32 buffer using the
+        // current scanout palette (damage/bonus/rad tint applied here).
+        rend.resolve(pic_data.palette());
     }
 
     pub fn new(fov: f32, width: f32, height: f32, hi_res: bool, debug: bool) -> Software25D {

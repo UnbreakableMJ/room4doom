@@ -1,5 +1,5 @@
 use pic_data::VoxelColumn;
-use render_common::{FUZZ_TABLE, fuzz_darken};
+use render_common::FUZZ_TABLE;
 
 use super::Rasterizer;
 
@@ -127,8 +127,7 @@ impl Rasterizer {
         view_proj: &glam::Mat4,
         camera_pos: glam::Vec3,
         colourmaps: &[&[usize]],
-        palette: &[u32],
-        buffer: &mut [u32],
+        buffer: &mut [u8],
         pitch: usize,
     ) {
         let s = match self.voxel_setup(
@@ -203,8 +202,7 @@ impl Rasterizer {
 
                         let band = (avg_iw * super::LIGHT_SCALE).min(47.0) as usize;
                         let colourmap = colourmaps[band];
-                        let lit_index = colourmap[color as usize];
-                        let pixel_color = palette[lit_index];
+                        let pixel_color = colourmap[color as usize] as u8;
 
                         if min_y == max_y {
                             let min_x = min_x as i32;
@@ -292,7 +290,8 @@ impl Rasterizer {
         tex_height: u16,
         view_proj: &glam::Mat4,
         camera_pos: glam::Vec3,
-        buffer: &mut [u32],
+        colourmap6: &[usize],
+        buffer: &mut [u8],
         pitch: usize,
         fuzz_pos: &mut usize,
     ) {
@@ -378,7 +377,8 @@ impl Rasterizer {
                                 {
                                     let offset = FUZZ_TABLE[*fuzz_pos % FUZZ_TABLE.len()];
                                     let src_y = (min_y + offset).clamp(0, h_clamp) as usize;
-                                    buffer[row + ux] = fuzz_darken(buffer[src_y * pitch + ux]);
+                                    buffer[row + ux] =
+                                        colourmap6[buffer[src_y * pitch + ux] as usize] as u8;
                                     *fuzz_pos += 1;
                                     self.depth_buffer.set_depth_update_hiz(
                                         ux,
@@ -428,7 +428,8 @@ impl Rasterizer {
                                     {
                                         let offset = FUZZ_TABLE[*fuzz_pos % FUZZ_TABLE.len()];
                                         let src_y = (py + offset).clamp(0, h_clamp) as usize;
-                                        buffer[row + ux] = fuzz_darken(buffer[src_y * pitch + ux]);
+                                        buffer[row + ux] =
+                                        colourmap6[buffer[src_y * pitch + ux] as usize] as u8;
                                         *fuzz_pos += 1;
                                         self.depth_buffer.set_depth_update_hiz(
                                             ux,

@@ -319,7 +319,11 @@ impl GameRenderer for RenderTarget {
 
 pub(crate) struct DrawBuffer {
     pub(crate) size: BufferSize,
-    /// Pixel buffer in `0xFFRRGGBB` format (ARGB, fully opaque).
+    /// 8-bit palette-index plane written by the scene renderers. Resolved into
+    /// `buffer` at scanout via [`DrawBuffer::resolve`].
+    pub(crate) index: Vec<u8>,
+    /// Pixel buffer in `0xFFRRGGBB` format (ARGB, fully opaque). The resolve
+    /// target and the surface HUD/menu/wipe draw onto.
     pub(crate) buffer: Vec<u32>,
 }
 
@@ -327,7 +331,32 @@ impl DrawBuffer {
     fn new(width: usize, height: usize) -> Self {
         Self {
             size: BufferSize::new(width, height),
+            index: vec![0u8; width * height + 1],
             buffer: vec![0xFF_00_00_00; width * height + 1],
+        }
+    }
+
+    /// Resolve the index plane into the u32 buffer: `buffer[i] = palette[index[i]]`.
+    /// The scene fully overwrites the index plane each frame (no transparency),
+    /// so no clear is needed. `palette` is the current scanout palette (gameplay
+    /// `use_pallette`).
+    #[inline]
+    pub fn resolve(&mut self, palette: &[u32]) {
+        for (out, &idx) in self.buffer.iter_mut().zip(self.index.iter()) {
+            *out = unsafe { *palette.get_unchecked(idx as usize) };
+        }
+    }
+
+    #[inline(always)]
+    pub fn set_index(&mut self, x: usize, y: usize, idx: u8) {
+        let pos = y * self.size.width_usize() + x;
+        #[cfg(not(feature = "safety_check"))]
+        unsafe {
+            *self.index.get_unchecked_mut(pos) = idx;
+        }
+        #[cfg(feature = "safety_check")]
+        {
+            self.index[pos] = idx;
         }
     }
 }
@@ -425,6 +454,21 @@ impl render_common::DrawBuffer for FrameBuffer {
     #[inline]
     fn read_pixel(&self, x: usize, y: usize) -> u32 {
         self.buffer.read_pixel(x, y)
+    }
+
+    #[inline]
+    fn set_index(&mut self, x: usize, y: usize, idx: u8) {
+        self.buffer.set_index(x, y, idx);
+    }
+
+    #[inline]
+    fn index_mut(&mut self) -> &mut [u8] {
+        &mut self.buffer.index
+    }
+
+    #[inline]
+    fn resolve(&mut self, palette: &[u32]) {
+        self.buffer.resolve(palette);
     }
 
     fn debug_flip_and_present(&mut self) {

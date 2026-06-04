@@ -22,6 +22,7 @@ const HI: (usize, usize) = (1280, 800);
 /// Headless framebuffer; indexes by its own width so any resolution works.
 struct HeadlessBuffer {
     size: BufferSize,
+    index: Vec<u8>,
     data: Vec<u32>,
     w: usize,
 }
@@ -30,12 +31,13 @@ impl HeadlessBuffer {
     fn new(w: usize, h: usize) -> Self {
         Self {
             size: BufferSize::new(w, h),
+            index: vec![0u8; w * h],
             data: vec![0u32; w * h],
             w,
         }
     }
     fn any_drawn(&self) -> bool {
-        self.data.iter().any(|&p| p & 0x00FF_FFFF != 0)
+        self.index.iter().any(|&p| p != 0) || self.data.iter().any(|&p| p & 0x00FF_FFFF != 0)
     }
 }
 
@@ -57,6 +59,17 @@ impl DrawBuffer for HeadlessBuffer {
     }
     fn buf_mut(&mut self) -> &mut [u32] {
         &mut self.data
+    }
+    fn set_index(&mut self, x: usize, y: usize, idx: u8) {
+        self.index[y * self.w + x] = idx;
+    }
+    fn index_mut(&mut self) -> &mut [u8] {
+        &mut self.index
+    }
+    fn resolve(&mut self, palette: &[u32]) {
+        for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
+            *out = palette[idx as usize];
+        }
     }
     fn debug_flip_and_present(&mut self) {}
 }

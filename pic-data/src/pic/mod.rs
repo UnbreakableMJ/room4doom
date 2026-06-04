@@ -60,7 +60,6 @@ pub struct SpritePic {
 
 type Colourmap = [usize; 256];
 const PALLETE_LEN: usize = 14;
-const COLOURMAP_LEN: usize = 34;
 
 /// CRT phosphor response simulation parameters.
 /// Operates in luminance space to avoid over-saturating colours.
@@ -146,8 +145,9 @@ pub struct PicData {
     palettes: [WadPalette; PALLETE_LEN],
     crt_gamma: CrtGamma,
     crt_tone_lut: [u8; 256],
-    // Usually 34 blocks of 256, each u8 being an index in to the palette
-    colourmap: [Colourmap; COLOURMAP_LEN],
+    // Usually 34 blocks of 256, each being an index into the palette. Heap-
+    // allocated (like OG's zone-cached `colormaps`); render borrows into it.
+    colourmap: Vec<Colourmap>,
     /// Precomputed wall light colourmaps (16 light levels × 48 scales)
     lightscale_colourmap: Vec<Colourmap>,
     /// Precomputed flat light colourmaps (16 light levels × 128 distances)
@@ -182,7 +182,7 @@ impl Default for PicData {
             palettes: Default::default(),
             crt_gamma: CrtGamma::default(),
             crt_tone_lut: [0; 256],
-            colourmap: [[0; 256]; COLOURMAP_LEN],
+            colourmap: Vec::new(),
             use_fixed_colourmap: Default::default(),
             walls: Default::default(),
             wall_translation: Default::default(),
@@ -319,22 +319,21 @@ impl PicData {
         tmp
     }
 
-    fn init_colourmap(wad: &WadData) -> [Colourmap; COLOURMAP_LEN] {
+    /// Load the COLORMAP lump as a heap table (matches OG Doom, which caches
+    /// `colormaps` in the zone heap and indexes it by pointer). The 34 × 256
+    /// `usize` maps are 68 KB — kept off the stack.
+    fn init_colourmap(wad: &WadData) -> Vec<Colourmap> {
         print!(".");
-        let mut tmp = [[0; 256]; COLOURMAP_LEN];
-        let maps: Vec<Colourmap> = wad
-            .colourmap_iter()
+        wad.colourmap_iter()
             .map(|i| i as usize)
             .collect::<Vec<usize>>()
             .chunks(256)
             .map(|v| {
-                let mut tmp: Colourmap = [0; 256];
-                tmp.copy_from_slice(v);
-                tmp
+                let mut map: Colourmap = [0; 256];
+                map.copy_from_slice(v);
+                map
             })
-            .collect();
-        tmp.copy_from_slice(&maps);
-        tmp
+            .collect()
     }
 
     /// Precompute the wall light scale LUT: maps (light level, scale) to

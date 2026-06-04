@@ -808,17 +808,16 @@ impl SegRender {
             return;
         }
 
-        let pal = pic_data.palette();
         let mut frac = dc_texturemid + (FixedT::from(y_start) - self.centery) * self.dc_iscale;
         let mut pos = pixels.get_buf_index(self.rw_startx.to_i32() as usize, y_start as usize);
         let pitch = pixels.pitch();
-        let buf = pixels.buf_mut();
 
         let colourmap = if !sky {
             pic_data.vert_light_colourmap(self.wall_lights, self.rw_scale.to_f32())
         } else {
             pic_data.colourmap(0)
         };
+        let idx = pixels.index_mut();
 
         for _ in y_start..=y_end {
             let mut select = (frac.to_i32() as usize) & 127;
@@ -831,13 +830,8 @@ impl SegRender {
             let tc = texture_column[select];
             if (tc as usize) < colourmap.len() {
                 unsafe {
-                    let c = *pal.get_unchecked(*colourmap.get_unchecked(tc as usize));
-                    *buf.get_unchecked_mut(pos) = c;
+                    *idx.get_unchecked_mut(pos) = *colourmap.get_unchecked(tc as usize) as u8;
                 }
-            }
-            #[cfg(any())] // disabled
-            {
-                pixels.set_pixel(dc_x, i as u32 as usize, pal[colourmap[tc as usize]]);
             }
             frac += self.dc_iscale;
             pos += pitch;
@@ -878,7 +872,6 @@ impl SegRender {
             return;
         }
 
-        let pal = pic_data.palette();
         let tex_len = texture.height - 1; // always square
         let tex_w = texture.width;
         let mut pos = pixels.get_buf_index(dc_x as usize, y_start);
@@ -937,7 +930,7 @@ impl SegRender {
                 let mut xfrac = x0;
                 let mut yfrac = y0;
 
-                let buf = pixels.buf_mut();
+                let buf = pixels.index_mut();
                 for j in 0..FLAT_INTERP_INTERVAL {
                     let diminished_light = plane_height * yslopes[i + j];
                     let colourmap = pic_data.flat_light_colourmap(
@@ -950,8 +943,7 @@ impl SegRender {
 
                     unsafe {
                         let tc = texture.data[y_step * tex_w + x_step];
-                        let c = *pal.get_unchecked(*colourmap.get_unchecked(tc as usize));
-                        *buf.get_unchecked_mut(pos) = c;
+                        *buf.get_unchecked_mut(pos) = *colourmap.get_unchecked(tc as usize) as u8;
                     }
                     pos += pitch;
                     xfrac += dx;
@@ -959,7 +951,7 @@ impl SegRender {
                 }
                 i += FLAT_INTERP_INTERVAL;
             } else {
-                let buf = pixels.buf_mut();
+                let buf = pixels.index_mut();
                 // Tail: fewer than N pixels, compute each exactly
                 for j in 0..remaining {
                     let (xfrac, yfrac) = sample_coords(
@@ -982,8 +974,7 @@ impl SegRender {
 
                     unsafe {
                         let tc = texture.data[y_step * tex_w + x_step];
-                        let c = *pal.get_unchecked(*colourmap.get_unchecked(tc as usize));
-                        *buf.get_unchecked_mut(pos) = c;
+                        *buf.get_unchecked_mut(pos) = *colourmap.get_unchecked(tc as usize) as u8;
                     }
                     pos += pitch;
                 }

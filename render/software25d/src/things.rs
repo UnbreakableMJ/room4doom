@@ -10,7 +10,7 @@ use math::{ANG45, FRACBITS, FRACUNIT, FixedT, r_point_to_angle};
 
 const FINEANGLES: usize = 8192;
 use pic_data::PicData;
-use render_common::{DrawBuffer, FUZZ_TABLE, RenderPspDef, RenderView, fuzz_darken};
+use render_common::{DrawBuffer, FUZZ_TABLE, RenderPspDef, RenderView};
 
 use super::bsp::Software25D;
 use super::defs::DrawSeg;
@@ -328,6 +328,7 @@ impl Software25D {
                 if is_shadow {
                     draw_fuzz_column(
                         texture_column,
+                        pic_data.colourmap(6),
                         dc_iscale,
                         self.seg_renderer.centery,
                         x,
@@ -347,7 +348,6 @@ impl Software25D {
                         dc_texmid,
                         top,
                         bottom,
-                        pic_data,
                         rend,
                     );
                 }
@@ -715,7 +715,6 @@ impl Software25D {
                         dc_texturemid,
                         top,
                         bottom,
-                        pic_data,
                         rend,
                     );
 
@@ -741,13 +740,11 @@ fn draw_masked_column(
     dc_texturemid: FixedT,
     yl: FixedT,
     mut yh: FixedT,
-    pic_data: &PicData,
     pixels: &mut impl DrawBuffer,
 ) {
     if yh >= FixedT::from(pixels.size().height()) {
         yh = FixedT::from(pixels.size().height()) - 1;
     }
-    let pal = pic_data.palette();
     let mut frac = dc_texturemid + (yl - centery) * fracstep;
     for y in yl.to_i32() as usize..=yh.to_i32() as usize {
         let select = frac.to_i32() as usize;
@@ -758,8 +755,7 @@ fn draw_masked_column(
             frac += fracstep;
             continue;
         }
-        let c = pal[colourmap[texture_column[select] as usize]];
-        pixels.set_pixel(dc_x, y, c);
+        pixels.set_index(dc_x, y, colourmap[texture_column[select] as usize] as u8);
         frac += fracstep;
     }
 }
@@ -772,6 +768,7 @@ fn draw_masked_column(
 #[allow(clippy::too_many_arguments)]
 fn draw_fuzz_column(
     texture_column: &[u16],
+    colourmap6: &[usize],
     fracstep: FixedT,
     centery: FixedT,
     dc_x: usize,
@@ -796,10 +793,11 @@ fn draw_fuzz_column(
             frac += fracstep;
             continue;
         }
-        let buf = pixels.buf_mut();
+        // OG spectre fuzz: darken a neighbour's index via colourmap 6.
+        let idx = pixels.index_mut();
         let offset = FUZZ_TABLE[*fuzz_pos % FUZZ_TABLE.len()];
         let src_y = (y as i32 + offset).clamp(0, height as i32 - 1) as usize;
-        buf[y * pitch + dc_x] = fuzz_darken(buf[src_y * pitch + dc_x]);
+        idx[y * pitch + dc_x] = colourmap6[idx[src_y * pitch + dc_x] as usize] as u8;
         *fuzz_pos += 1;
         frac += fracstep;
     }

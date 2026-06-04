@@ -253,13 +253,16 @@ impl Software3D {
                             }
                             let colourmap =
                                 pic_data.base_colourmap(brightness, edge_inv_w * LIGHT_SCALE);
-                            let color = texture_sampler.sample(u, v, colourmap, pic_data);
-                            if color == 0 {
+                            let idx = texture_sampler.sample(u, v, colourmap);
+                            if idx == u16::MAX {
                                 interp_state.step_x();
                                 edge_inv_w += edge_inv_w_dx;
                                 x += 1;
                                 continue;
                             }
+                            // Debug overlays produce true-colour, so resolve the
+                            // index here (this path is not perf-critical).
+                            let color = pic_data.palette()[idx as usize];
                             if !no_depth {
                                 self.rasterizer
                                     .depth_buffer
@@ -288,7 +291,8 @@ impl Software3D {
 
                             let colourmap =
                                 pic_data.base_colourmap(brightness, edge_inv_w * LIGHT_SCALE);
-                            let color = texture_sampler.sample(u, v, colourmap, pic_data);
+                            let idx = texture_sampler.sample(u, v, colourmap);
+                            let color = pic_data.palette()[idx as usize];
 
                             let final_color = self.apply_debug_colour(
                                 color,

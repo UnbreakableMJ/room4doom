@@ -448,7 +448,6 @@ impl Software3D {
         profile!("voxel_render_all");
         let cp = self.camera_pos;
         let buf_pitch = buffer.pitch();
-        let palette = pic_data.palette();
 
         let mut cached_brightness = usize::MAX;
         let mut colourmaps = [&[][..]; 48];
@@ -463,8 +462,9 @@ impl Software3D {
             }
 
             let columns = vq.columns;
-            let buf = buffer.buf_mut();
             if vq.is_shadow {
+                let colourmap6 = pic_data.colourmap(6);
+                let buf = buffer.index_mut();
                 self.rasterizer.rasterize_voxel_fuzz(
                     vq.origin,
                     vq.u_vec,
@@ -474,11 +474,13 @@ impl Software3D {
                     vq.height,
                     view_proj,
                     cp,
+                    colourmap6,
                     buf,
                     buf_pitch,
                     &mut self.fuzz_pos,
                 );
             } else {
+                let buf = buffer.index_mut();
                 self.rasterizer.rasterize_voxel_texels(
                     vq.origin,
                     vq.u_vec,
@@ -489,7 +491,6 @@ impl Software3D {
                     view_proj,
                     cp,
                     &colourmaps,
-                    palette,
                     buf,
                     buf_pitch,
                 );

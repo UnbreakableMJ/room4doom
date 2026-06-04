@@ -169,6 +169,9 @@ impl App {
             let frame_u32: &mut [u32] = unsafe {
                 std::slice::from_raw_parts_mut(frame.as_mut_ptr() as *mut u32, (W * H) as usize)
             };
+            // Voxel texels render into an 8-bit palette-index plane, resolved to
+            // `frame_u32` below; the wireframe overlay then draws true-colour.
+            let mut frame_index = vec![0u8; (W * H) as usize];
 
             // Collect visible slices using the shared pipeline
             let params = VoxelCollectParams {
@@ -270,11 +273,17 @@ impl App {
                     &view_proj,
                     cam_pos,
                     &colourmaps,
-                    &self.palette_u32,
-                    frame_u32,
+                    &mut frame_index,
                     W as usize,
                 );
                 rendered += 1;
+            }
+
+            // Resolve the voxel index plane into the displayed u32 frame.
+            for (out, &idx) in frame_u32.iter_mut().zip(frame_index.iter()) {
+                if idx != 0 {
+                    *out = self.palette_u32[idx as usize];
+                }
             }
 
             // Wireframe overlay: w=1 all quads, w=2 collected (backface-culled) only

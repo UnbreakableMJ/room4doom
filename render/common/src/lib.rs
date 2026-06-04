@@ -283,6 +283,13 @@ pub trait DrawBuffer {
     fn pitch(&self) -> usize;
     fn buf_mut(&mut self) -> &mut [u32];
     fn debug_flip_and_present(&mut self);
+
+    /// Write a palette index to the 8-bit scene plane (the hot geometry path).
+    fn set_index(&mut self, x: usize, y: usize, idx: u8);
+    /// The 8-bit palette-index plane, for inner-loop `idx[pos] = colourmap[src]`.
+    fn index_mut(&mut self) -> &mut [u8];
+    /// Resolve the index plane into the u32 plane: `buffer[i] = palette[index[i]]`.
+    fn resolve(&mut self, palette: &[u32]);
 }
 
 // =============================================================================
@@ -451,40 +458,3 @@ pub fn og_projection(base_hfov: f32, buf_width: f32, buf_height: f32) -> (f32, f
     (hfov, vfov, focal_length)
 }
 
-// =============================================================================
-// Pixel effects
-// =============================================================================
-
-/// Darken a pixel to ~6/16 brightness (approximates colourmap 6).
-#[inline(always)]
-pub fn fuzz_darken(pixel: u32) -> u32 {
-    let r = (pixel >> 16) & 0xFF;
-    let g = (pixel >> 8) & 0xFF;
-    let b = pixel & 0xFF;
-    let shift = 3;
-    0xFF000000 | (((r * 6) >> shift) << 16) | (((g * 6) >> shift) << 8) | ((b * 6) >> shift)
-}
-
-/// Apply fuzz effect to a horizontal span of the framebuffer. For each pixel
-/// in `x_start..=x_end`, reads the pixel at a Y-offset from `FUZZ_TABLE`,
-/// darkens it, and writes to `(x, y)`. `fuzz_pos` is the running table index
-/// and is updated in place so consecutive spans stay in phase.
-pub fn fuzz_span(
-    buf: &mut [u32],
-    pitch: usize,
-    height: usize,
-    y: usize,
-    x_start: usize,
-    x_end: usize,
-    fuzz_pos: &mut usize,
-) {
-    let row_base = y * pitch;
-    for x in x_start..=x_end {
-        let offset = FUZZ_TABLE[*fuzz_pos % FUZZ_TABLE.len()];
-        let src_y = (y as i32 + offset).clamp(0, height as i32 - 1) as usize;
-        let src_idx = src_y * pitch + x;
-        let darkened = fuzz_darken(buf[src_idx]);
-        buf[row_base + x] = darkened;
-        *fuzz_pos += 1;
-    }
-}

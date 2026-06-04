@@ -5,7 +5,7 @@ use std::mem;
 use glam::Vec2;
 use level::{SurfaceKind, SurfacePolygon, WallType};
 use pic_data::PicData;
-use render_common::{DrawBuffer, FUZZ_TABLE, fuzz_darken};
+use render_common::{DrawBuffer, FUZZ_TABLE};
 
 use crate::Software3D;
 
@@ -17,22 +17,6 @@ use super::{LIGHT_SCALE, ScreenPoly};
 /// so that distant polygons clamped to this value still pass the depth test
 /// against sky pixels.
 pub(crate) const MIN_GEOMETRY_DEPTH: f32 = 1.0e-6;
-
-/// BOOM-style alpha blend: 66% source, 34% destination (ARGB u32 format
-/// 0xAARRGGBB)
-#[inline(always)]
-fn alpha_blend(src: u32, dst: u32) -> u32 {
-    let sr = (src >> 16) & 0xFF;
-    let sg = (src >> 8) & 0xFF;
-    let sb = src & 0xFF;
-    let dr = (dst >> 16) & 0xFF;
-    let dg = (dst >> 8) & 0xFF;
-    let db = dst & 0xFF;
-    let r = (sr * 170 + dr * 86) >> 8;
-    let g = (sg * 170 + dg * 86) >> 8;
-    let b = (sb * 170 + db * 86) >> 8;
-    0xFF000000 | (r << 16) | (g << 8) | b
-}
 
 impl Software3D {
     /// Fast-path rasteriser: zero debug branches in the inner loop.
@@ -98,7 +82,7 @@ impl Software3D {
 
         let inv_w_slice = &self.rasterizer.inv_w_buffer[..self.rasterizer.inv_w_len];
         let buf_pitch = buffer.pitch();
-        let buf = buffer.buf_mut();
+        let buf = buffer.index_mut();
         let mut did_draw = false;
         for y in y_start..=y_end {
             let y_f = y as f32;
@@ -239,8 +223,8 @@ impl Software3D {
                             }
                             let colourmap =
                                 pic_data.base_colourmap(brightness, edge_inv_w * LIGHT_SCALE);
-                            let color = texture_sampler.sample(u, v, colourmap, pic_data);
-                            if color == 0 {
+                            let color = texture_sampler.sample(u, v, colourmap);
+                            if color == u16::MAX {
                                 // Transparent pixel — don't write depth or color
                                 interp_state.step_x();
                                 edge_inv_w += edge_inv_w_dx;
@@ -248,16 +232,16 @@ impl Software3D {
                                 continue;
                             }
                             if is_translucent {
-                                // Alpha blend: 66% source, 34% dest (BOOM default)
-                                let dst = buf[y * buf_pitch + x];
-                                buf[y * buf_pitch + x] = alpha_blend(color, dst);
-                                // No depth write — geometry behind shows
-                                // through
+                                // TODO(index-fb): re-express translucency as an
+                                // index-domain effect (OG-style). For now write
+                                // the index opaque, no depth — geometry behind
+                                // is overwritten.
+                                buf[y * buf_pitch + x] = color as u8;
                             } else {
                                 self.rasterizer
                                     .depth_buffer
                                     .set_depth_unchecked(x, y, edge_inv_w);
-                                buf[y * buf_pitch + x] = color;
+                                buf[y * buf_pitch + x] = color as u8;
                             }
                         } else {
                             // Depth test before UV — avoids the perspective divide on misses
@@ -276,9 +260,9 @@ impl Software3D {
                             let (u, v) = interp_state.get_current_uv();
                             let colourmap =
                                 pic_data.base_colourmap(brightness, edge_inv_w * LIGHT_SCALE);
-                            let color = texture_sampler.sample(u, v, colourmap, pic_data);
+                            let color = texture_sampler.sample(u, v, colourmap);
 
-                            buf[y * buf_pitch + x] = color;
+                            buf[y * buf_pitch + x] = color as u8;
                         }
                         did_draw = true;
 
@@ -352,13 +336,7 @@ impl Software3D {
                 }
 
                 let colourmap = pic_data.base_colourmap(quad.brightness, edge_inv_w * LIGHT_SCALE);
-                let lit_index = colourmap[color_index as usize];
-                let color = pic_data
-                    .palette()
-                    .get(lit_index)
-                    .copied()
-                    .unwrap_or(0xFFFF00FF);
-                buffer.set_pixel(x, y, color);
+                buffer.set_index(x, y, colourmap[color_index as usize] as u8);
 
                 self.rasterizer
                     .depth_buffer
@@ -383,6 +361,7 @@ impl Software3D {
             None => return,
         };
         let patch = pic_data.sprite_patch(quad.patch_index);
+        let colourmap6 = pic_data.colourmap(6);
         let pitch = buffer.pitch();
         let h_clamp = setup.height_f32 as i32 - 1;
 
@@ -425,10 +404,10 @@ impl Software3D {
                     continue;
                 }
 
-                let buf = buffer.buf_mut();
+                let buf = buffer.index_mut();
                 let offset = FUZZ_TABLE[self.fuzz_pos % FUZZ_TABLE.len()];
                 let src_y = (y as i32 + offset).clamp(0, h_clamp) as usize;
-                buf[y * pitch + x] = fuzz_darken(buf[src_y * pitch + x]);
+                buf[y * pitch + x] = colourmap6[buf[src_y * pitch + x] as usize] as u8;
                 self.fuzz_pos += 1;
 
                 self.rasterizer
