@@ -771,7 +771,10 @@ impl Software3D {
 
         // Transform vertices to clip space and setup for clipping
         let vert_count = polygon.vertices.len();
-        assert!(vert_count <= MAX_CLIPPED_VERTICES, "polygon exceeds clip buffer");
+        assert!(
+            vert_count <= MAX_CLIPPED_VERTICES,
+            "polygon exceeds clip buffer"
+        );
         let mut input_vertices = [Vec4::ZERO; MAX_CLIPPED_VERTICES];
         let mut input_tex_coords = [Vec3::ZERO; MAX_CLIPPED_VERTICES];
 

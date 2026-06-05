@@ -1003,7 +1003,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Registered Doom only"]
+    #[cfg_attr(
+        not(feature = "wad-doom"),
+        ignore = "needs registered doom.wad (~/doom/)"
+    )]
     fn texture2_header() {
         let wad = WadData::new(&doom_wad_path());
         let lump = wad.find_lump_or_panic("TEXTURE2");

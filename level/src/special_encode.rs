@@ -48,6 +48,8 @@ const FC_CRUSH_SHIFT: u32 = 12;
 const DOOR_SPEED_SHIFT: u32 = 3;
 const DOOR_KIND_SHIFT: u32 = 5;
 const DOOR_DELAY_SHIFT: u32 = 8;
+const LOCKED_SPEED_SHIFT: u32 = 3;
+const LOCKED_KIND_SHIFT: u32 = 5;
 const LIFT_SPEED_SHIFT: u32 = 3;
 const LIFT_DELAY_SHIFT: u32 = 6;
 const LIFT_TARGET_SHIFT: u32 = 8;
@@ -263,8 +265,10 @@ fn boom_category(special: u32) -> Option<Category> {
         Some(Category::Floor)
     } else if special >= GEN_CEILING_BASE {
         Some(Category::Ceiling)
-    } else if special >= GEN_DOOR_BASE || special >= GEN_LOCKED_BASE {
-        Some(Category::Door) // generalized locked door -> door category
+    } else if special >= GEN_LOCKED_BASE {
+        // Regular doors and locked doors (lower base) both decode as Door; the
+        // decoder picks the layout/base by range.
+        Some(Category::Door)
     } else if special >= GEN_LIFT_BASE {
         Some(Category::Lift)
     } else if special >= GEN_STAIRS_BASE {
@@ -296,7 +300,10 @@ pub fn decode(special: u32) -> Option<ExtSpec> {
     let kind = match category {
         Category::Floor => decode_floor_kind(special - GEN_FLOOR_BASE),
         Category::Ceiling => decode_ceiling_kind(special),
-        Category::Door => decode_door_kind(special - GEN_DOOR_BASE),
+        // Locked doors (`[GEN_LOCKED_BASE, GEN_DOOR_BASE)`) share the Door
+        // category but use a distinct bitfield layout and base.
+        Category::Door if special >= GEN_DOOR_BASE => decode_door_kind(special - GEN_DOOR_BASE),
+        Category::Door => decode_locked_door_kind(special - GEN_LOCKED_BASE),
         Category::Lift => decode_lift_kind(special - GEN_LIFT_BASE),
         Category::Stairs => decode_stair_kind(special - GEN_STAIRS_BASE),
     };
@@ -391,6 +398,21 @@ fn decode_door_kind(v: u32) -> u8 {
         (DK_C, true) => DK_BLAZE_CLOSE,
         // DK_CDO (close30ThenOpen) is encoded extended, never reaches here.
         _ => DK_NORMAL,
+    }
+}
+
+/// Generalized locked door (`GEN_LOCKED_BASE`). Same speed field as a regular
+/// door but `kind` is a single bit (0 = open-delay-close/raise, 1 = open-stay);
+/// locked doors never close-only. Key/nkeys bits do not affect mover identity.
+fn decode_locked_door_kind(v: u32) -> u8 {
+    let speed = field(v, LOCKED_SPEED_SHIFT, 0x3);
+    let open = field(v, LOCKED_KIND_SHIFT, 0x1) == 1;
+    let fast = speed >= SPEED_FAST;
+    match (open, fast) {
+        (false, false) => DK_NORMAL,
+        (false, true) => DK_BLAZE_RAISE,
+        (true, false) => DK_OPEN,
+        (true, true) => DK_BLAZE_OPEN,
     }
 }
 
@@ -924,5 +946,22 @@ mod tests {
         for &(n, want) in cases {
             assert_eq!(encode_vanilla(n), Some(want), "special {n} hex");
         }
+    }
+
+    /// Generalized locked doors (`[GEN_LOCKED_BASE, GEN_DOOR_BASE)`) decode as
+    /// the Door category using the locked layout (1-bit kind), without the
+    /// base-subtraction underflow that used to crash on real maps (sunder
+    /// MAP20 uses 0x39AA and 0x3B32).
+    #[test]
+    fn locked_door_decode() {
+        let a = decode(0x39AA).expect("locked door 0x39AA decodes");
+        assert_eq!(a.category, Category::Door);
+        assert_eq!(a.trigger, Trigger::SwitchOnce);
+        assert_eq!(a.kind, DK_OPEN); // speed normal, open-stay
+
+        let b = decode(0x3B32).expect("locked door 0x3B32 decodes");
+        assert_eq!(b.category, Category::Door);
+        assert_eq!(b.trigger, Trigger::SwitchOnce);
+        assert_eq!(b.kind, DK_BLAZE_OPEN); // speed fast, open-stay
     }
 }

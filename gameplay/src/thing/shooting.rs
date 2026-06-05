@@ -951,3 +951,86 @@ fn cross_subsector(
 
     true
 }
+
+#[cfg(test)]
+mod shooting_tests {
+    use crate::MapObjKind;
+    use crate::bsp_trace::BSPTrace;
+    use crate::test_support::{TestLevel, rng_guard};
+    use crate::thing::MapObjFlag;
+    use math::{FixedT, get_prndindex};
+
+    fn trace() -> BSPTrace {
+        BSPTrace::new_line(
+            FixedT::ZERO,
+            FixedT::ZERO,
+            FixedT::ONE,
+            FixedT::ZERO,
+            FixedT::ZERO,
+        )
+    }
+
+    #[test]
+    fn explode_missile_zeroes_momentum_and_clears_flag() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        let shot = level.spawn(1056, -3616, MapObjKind::MT_TROOPSHOT);
+        shot.momx = FixedT::from(10);
+        shot.momy = FixedT::from(-10);
+        shot.momz = FixedT::from(5);
+
+        let before = get_prndindex();
+        shot.p_explode_missile();
+
+        assert_eq!(shot.momx.to_f32(), 0.0);
+        assert_eq!(shot.momy.to_f32(), 0.0);
+        assert_eq!(shot.momz.to_f32(), 0.0);
+        assert!(!shot.flags.contains(MapObjFlag::Missile));
+        assert!(shot.tics >= 1);
+        assert!(get_prndindex() > before, "death-tic randomisation uses RNG");
+    }
+
+    /// Co-located: dist clamps to 0 -> target takes the full blast damage.
+    #[test]
+    fn radius_attack_applies_full_damage_at_zero_distance() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        // Target via raw ptr so it survives spawning the bomb.
+        let target = level.spawn_ptr(1056, -3616, MapObjKind::MT_POSSESSED);
+        let target_health = unsafe { (*target).health };
+        let bomb = level.spawn(1056, -3616, MapObjKind::MT_BARREL);
+
+        bomb.radius_attack(10);
+
+        assert_eq!(unsafe { (*target).health }, target_health - 10);
+    }
+
+    /// Inaccurate shot costs exactly two more p_random (the angle spread),
+    /// independent of what the trace hits.
+    #[test]
+    fn gun_shot_spread_costs_two_extra_rng() {
+        let mut level = TestLevel::load("E1M1");
+        let shooter = level.spawn(1056, -3616, MapObjKind::MT_PLAYER);
+
+        let accurate_cost = {
+            let _g = rng_guard();
+            let mut bt = trace();
+            let before = get_prndindex();
+            shooter.gun_shot(true, FixedT::from(2048), None, &mut bt);
+            get_prndindex().wrapping_sub(before)
+        };
+        let inaccurate_cost = {
+            let _g = rng_guard();
+            let mut bt = trace();
+            let before = get_prndindex();
+            shooter.gun_shot(false, FixedT::from(2048), None, &mut bt);
+            get_prndindex().wrapping_sub(before)
+        };
+
+        assert_eq!(
+            inaccurate_cost,
+            accurate_cost + 2,
+            "spread adds exactly two p_random calls (accurate={accurate_cost}, inaccurate={inaccurate_cost})"
+        );
+    }
+}

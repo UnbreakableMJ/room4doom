@@ -1147,3 +1147,99 @@ const DIR_DIAGONALS: [MoveDir; 4] = [
 
 const DIR_XSPEED: [i32; 8] = [65536, 47000, 0, -47000, -65536, -47000, 0, 47000];
 const DIR_YSPEED: [i32; 8] = [0, 47000, 65536, 47000, 0, -47000, -65536, -47000];
+
+#[cfg(test)]
+mod z_movement_tests {
+    use crate::MapObjKind;
+    use crate::test_support::{TestLevel, rng_guard};
+    use math::{FixedT, get_prndindex};
+
+    // E1M1 start sector: floor 0. MT_BARREL has gravity (GRAVITY = 1.0).
+
+    /// First fall from rest: momz jumps to -2.0 (GRAVITY*2), no RNG.
+    #[test]
+    fn z_movement_first_fall_uses_double_gravity() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        let barrel = level.spawn(1056, -3616, MapObjKind::MT_BARREL);
+        barrel.z = FixedT::from(20);
+        barrel.momz = FixedT::ZERO;
+
+        let before = get_prndindex();
+        barrel.p_z_movement();
+
+        assert_eq!(barrel.z.to_f32(), 20.0);
+        assert_eq!(barrel.momz.to_f32(), -2.0);
+        assert_eq!(get_prndindex(), before);
+    }
+
+    /// Continued fall: z += momz, momz -= GRAVITY.
+    #[test]
+    fn z_movement_continued_fall_decrements_by_gravity() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        let barrel = level.spawn(1056, -3616, MapObjKind::MT_BARREL);
+        barrel.z = FixedT::from(20);
+        barrel.momz = FixedT::from(-2);
+
+        barrel.p_z_movement();
+
+        assert_eq!(barrel.z.to_f32(), 18.0);
+        assert_eq!(barrel.momz.to_f32(), -3.0);
+    }
+
+    /// Landing clamps momz to 0 and snaps z to floorz.
+    #[test]
+    fn z_movement_lands_on_floor() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        let barrel = level.spawn(1056, -3616, MapObjKind::MT_BARREL);
+        barrel.z = FixedT::from(1);
+        barrel.momz = FixedT::from(-2);
+
+        barrel.p_z_movement();
+
+        assert_eq!(barrel.z.to_f32(), 0.0);
+        assert_eq!(barrel.momz.to_f32(), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod try_move_tests {
+    use super::SubSectorMinMax;
+    use crate::MapObjKind;
+    use crate::test_support::{TestLevel, rng_guard};
+    use math::{FixedT, get_prndindex};
+
+    /// Short open move within the start room: accepted, position updated, no RNG.
+    #[test]
+    fn try_move_open_succeeds() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        let thing = level.spawn(1056, -3616, MapObjKind::MT_TROOP);
+        let (x, y) = (thing.x, thing.y);
+
+        let before = get_prndindex();
+        let mut ctrl = SubSectorMinMax::default();
+        let ok = thing.p_try_move(x, y + FixedT::from(8), &mut ctrl);
+
+        assert!(ok);
+        assert_eq!(thing.y.to_f32(), (y + FixedT::from(8)).to_f32());
+        assert_eq!(get_prndindex(), before);
+    }
+
+    /// Move into the south wall: blocked, position unchanged.
+    #[test]
+    fn try_move_into_wall_blocked() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        let thing = level.spawn(1056, -3616, MapObjKind::MT_TROOP);
+        let (x, y) = (thing.x, thing.y);
+
+        let mut ctrl = SubSectorMinMax::default();
+        let ok = thing.p_try_move(x, y - FixedT::from(64), &mut ctrl);
+
+        assert!(!ok);
+        assert_eq!(thing.y.to_f32(), y.to_f32());
+    }
+}

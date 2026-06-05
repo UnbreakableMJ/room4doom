@@ -4271,6 +4271,7 @@ name = "test-utils"
 version = "1.0.0"
 dependencies = [
  "dirs",
+ "glam",
  "level",
  "wad",
 ]

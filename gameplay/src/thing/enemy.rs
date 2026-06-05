@@ -1310,3 +1310,126 @@ pub(crate) fn a_playerscream(actor: &mut MapObject) {
 
     actor.start_sound(sound);
 }
+
+#[cfg(test)]
+mod enemy_tests {
+    use super::{a_facetarget, a_posattack, a_troopattack};
+    use crate::MapObjKind;
+    use crate::test_support::{TestLevel, rng_guard};
+    use math::get_prndindex;
+
+    /// Shadow (spectre) target adds angle fuzz: two p_random calls vs zero.
+    #[test]
+    fn facetarget_shadow_fuzz_costs_two_rng() {
+        let normal_cost = {
+            let _g = rng_guard();
+            let mut level = TestLevel::load("E1M1");
+            let target = level.spawn_ptr(1120, -3616, MapObjKind::MT_POSSESSED);
+            let imp = level.spawn(1056, -3616, MapObjKind::MT_TROOP);
+            imp.target = Some(unsafe { (*target).thinker });
+            let before = get_prndindex();
+            a_facetarget(imp);
+            get_prndindex().wrapping_sub(before)
+        };
+        let shadow_cost = {
+            let _g = rng_guard();
+            let mut level = TestLevel::load("E1M1");
+            let target = level.spawn_ptr(1120, -3616, MapObjKind::MT_SHADOWS);
+            let imp = level.spawn(1056, -3616, MapObjKind::MT_TROOP);
+            imp.target = Some(unsafe { (*target).thinker });
+            let before = get_prndindex();
+            a_facetarget(imp);
+            get_prndindex().wrapping_sub(before)
+        };
+
+        assert_eq!(normal_cost, 0, "facing a normal target consumes no RNG");
+        assert_eq!(shadow_cost, 2, "shadow fuzz consumes two p_random calls");
+    }
+
+    /// Imp melee deals `(p_random()%8+1)*3` = 3..=24.
+    #[test]
+    fn troop_melee_damages_adjacent_target() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        // 1 unit away — inside MELEERANGE (64).
+        let target = level.spawn_ptr(1057, -3616, MapObjKind::MT_POSSESSED);
+        let target_health = unsafe { (*target).health };
+        let imp = level.spawn(1056, -3616, MapObjKind::MT_TROOP);
+        imp.target = Some(unsafe { (*target).thinker });
+
+        a_troopattack(imp);
+
+        let dealt = target_health - unsafe { (*target).health };
+        assert!(
+            (3..=24).contains(&dealt),
+            "melee damage in 3..=24, got {dealt}"
+        );
+    }
+
+    /// Pistol attack rolls spread (2) + damage (1) = >= 3 p_random.
+    #[test]
+    fn posattack_consumes_spread_and_damage_rng() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        let target = level.spawn_ptr(1120, -3616, MapObjKind::MT_TROOP);
+        let zombie = level.spawn(1056, -3616, MapObjKind::MT_POSSESSED);
+        zombie.target = Some(unsafe { (*target).thinker });
+
+        let before = get_prndindex();
+        a_posattack(zombie);
+
+        assert!(
+            get_prndindex().wrapping_sub(before) >= 3,
+            "pos attack rolls angle spread (2) + damage (1)"
+        );
+    }
+
+    #[test]
+    fn posattack_without_target_is_noop() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        let zombie = level.spawn(1056, -3616, MapObjKind::MT_POSSESSED);
+        assert!(zombie.target.is_none());
+
+        let before = get_prndindex();
+        a_posattack(zombie);
+
+        assert_eq!(get_prndindex(), before, "no target -> no RNG");
+    }
+}
+
+#[cfg(test)]
+mod sequence_tests {
+    use crate::MapObjKind;
+    use crate::test_support::{TestLevel, rng_guard};
+    use math::get_prndindex;
+
+    // Demo-determinism contract: pin the final RNG index after a real
+    // look->see->chase sequence. Constants captured from a known-good run; a
+    // diff means a p_random call moved somewhere in the sequence.
+
+    fn spawn_zombie_and_player() -> (TestLevel, *mut crate::thing::MapObject) {
+        let mut level = TestLevel::load("E1M1");
+        let _player = level.spawn_player(1056, -3616);
+        let mon = level.spawn_ptr(1056, -3500, MapObjKind::MT_POSSESSED);
+        (level, mon)
+    }
+
+    #[test]
+    fn zombie_sights_player_rng_fingerprint() {
+        let _g = rng_guard();
+        let (mut level, mon) = spawn_zombie_and_player();
+        level.run_tics(mon, 35);
+        assert!(unsafe { (*mon).target.is_some() }, "acquired player");
+        assert_eq!(get_prndindex(), 11);
+    }
+
+    #[test]
+    fn zombie_chase_rng_fingerprint() {
+        let _g = rng_guard();
+        let (mut level, mon) = spawn_zombie_and_player();
+        level.run_tics(mon, 70);
+        assert!(unsafe { (*mon).target.is_some() }, "still chasing");
+        assert_eq!(get_prndindex(), 23);
+    }
+}

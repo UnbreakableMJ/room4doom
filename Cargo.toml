@@ -63,7 +63,7 @@ winit = "0.30"
 pixels = "0.15"
 softbuffer = { git = "https://github.com/flukejones/softbuffer", branch = "madsmtm/iosurface" }
 coarse-prof = "0.2"
-glam = "*"
+glam = "0.32"
 sdl2 = { version = "0.38", features = [
     "use_mac_framework",
     "unsafe_textures",

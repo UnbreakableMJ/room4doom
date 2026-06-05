@@ -990,3 +990,83 @@ pub fn respawn_specials(level: &mut LevelState) {
         thing.spawnpoint = mthing.1;
     }
 }
+
+#[cfg(test)]
+mod env_tests {
+    use crate::MapObjKind;
+    use crate::env::specials::cross_special_line;
+    use crate::test_support::{TestLevel, rng_guard};
+    use level::MapPtr;
+    use math::get_prndindex;
+
+    fn tag_sector(level: &TestLevel, tag: i16) -> usize {
+        level
+            .level_data()
+            .sectors
+            .iter()
+            .position(|s| s.tag == tag)
+            .expect("sector with tag")
+    }
+
+    /// E1M1 ld195: walk-triggered lift (tag 2). Pins the lower/hold/return cycle.
+    #[test]
+    fn e1m1_lift_lowers_then_returns() {
+        let _g = rng_guard();
+        let make = || {
+            let mut level = TestLevel::load("E1M1");
+            let player = level.spawn_ptr(1056, -3616, MapObjKind::MT_PLAYER);
+            let ld = MapPtr::new(&mut level.level_data_mut().linedefs[195]);
+            cross_special_line(0, ld, unsafe { &mut *player });
+            level
+        };
+        let sec = tag_sector(&make(), 2);
+
+        let mut a = make();
+        a.run_level_tics(16);
+        assert_eq!(
+            a.level_data().sectors[sec].floorheight.to_f32(),
+            40.0,
+            "descending"
+        );
+
+        let mut b = make();
+        b.run_level_tics(70);
+        assert_eq!(
+            b.level_data().sectors[sec].floorheight.to_f32(),
+            -48.0,
+            "bottom"
+        );
+
+        let mut c = make();
+        c.run_level_tics(245);
+        assert_eq!(
+            c.level_data().sectors[sec].floorheight.to_f32(),
+            104.0,
+            "returned"
+        );
+    }
+
+    /// E1M1 sector 44 glow (special 8): deterministic light ramp, 8/tic.
+    #[test]
+    fn e1m1_glow_light_ramps_deterministically() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        level.spawn_level_specials();
+        assert_eq!(level.level_data().sectors[44].lightlevel, 255);
+        level.run_level_tics(1);
+        assert_eq!(level.level_data().sectors[44].lightlevel, 247);
+        level.run_level_tics(1);
+        assert_eq!(level.level_data().sectors[44].lightlevel, 239);
+    }
+
+    /// E1M1 sector 40 flicker (special 1): RNG-driven. Pins light + RNG index.
+    #[test]
+    fn e1m1_flicker_light_rng_fingerprint() {
+        let _g = rng_guard();
+        let mut level = TestLevel::load("E1M1");
+        level.spawn_level_specials();
+        level.run_level_tics(4);
+        assert_eq!(level.level_data().sectors[40].lightlevel, 144);
+        assert_eq!(get_prndindex(), 2);
+    }
+}
