@@ -60,7 +60,8 @@ level = { path = "./level" }
 rbsp = { path = "./tools/rbsp" }
 
 winit = "0.30"
-pixels = "0.15"
+wgpu = "29"
+pollster = "0.4"
 softbuffer = { git = "https://github.com/flukejones/softbuffer", branch = "madsmtm/iosurface" }
 coarse-prof = "0.2"
 glam = "0.32"

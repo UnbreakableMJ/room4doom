@@ -1,26 +1,23 @@
 use std::time::Instant;
 
 use math::m_random;
+use pic_data::PixelFmt;
 
 /// Duration between wipe steps (~60Hz).
 const STEP_INTERVAL_MS: u128 = 16;
 
-/// Opaque black (`0xAARRGGBB`), used to clear the snapshot so uncaptured pixels
-/// melt opaque (some display backends require fully-opaque surface pixels).
-const OPAQUE_BLACK: u32 = 0xFF00_0000;
-
-pub struct Wipe {
+pub struct Wipe<P: PixelFmt> {
     y: Vec<i32>,
     height: i32,
     width: i32,
     /// The old frame, drawn into by the caller when a wipe starts and melted
-    /// over the display surface. Width-pitched `0xAARRGGBB`.
-    snapshot: Vec<u32>,
+    /// over the display surface. Width-pitched, final `P` pixels.
+    snapshot: Vec<P>,
     /// Time of the last wipe step, used to gate advancement.
     last_step: Instant,
 }
 
-impl Wipe {
+impl<P: PixelFmt> Wipe<P> {
     pub fn new(width: i32, height: i32) -> Self {
         Self {
             y: Self::init_offsets(width),
@@ -53,20 +50,19 @@ impl Wipe {
         self.snapshot.clear();
     }
 
-    /// Begin a wipe: size the snapshot buffer and clear it to opaque black for
-    /// the caller to draw the old frame into (via [`Self::snapshot_mut`]).
-    /// Opaque (`0xFF` alpha) because the snapshot is melted onto the display
-    /// surface, which some backends require to be fully opaque.
+    /// Begin a wipe: size the snapshot buffer for the caller to draw the old
+    /// frame into (via [`Self::snapshot_mut`]). The caller draws the full frame,
+    /// so the `default()` (black) fill is only a backstop for unwritten cells.
     pub fn start(&mut self) {
         let n = self.width as usize * self.height as usize;
         self.snapshot.clear();
-        self.snapshot.resize(n, OPAQUE_BLACK);
+        self.snapshot.resize(n, P::default());
         self.last_step = Instant::now();
     }
 
-    /// The old-frame buffer, width-pitched `0xAARRGGBB`, for the caller to draw
-    /// the old state into after [`Self::start`].
-    pub fn snapshot_mut(&mut self) -> &mut [u32] {
+    /// The old-frame buffer, width-pitched final `P` pixels, for the caller to
+    /// draw the old state into after [`Self::start`].
+    pub fn snapshot_mut(&mut self) -> &mut [P] {
         &mut self.snapshot
     }
 
@@ -90,7 +86,7 @@ impl Wipe {
     /// advancing.
     ///
     /// Returns true when the melt is complete.
-    pub fn do_melt_pixels(&mut self, buf: &mut [u32], surface_pitch: usize) -> bool {
+    pub fn do_melt_pixels(&mut self, buf: &mut [P], surface_pitch: usize) -> bool {
         let elapsed = self.last_step.elapsed().as_millis();
         let should_step = elapsed >= STEP_INTERVAL_MS;
         if should_step {

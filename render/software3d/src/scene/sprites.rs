@@ -10,7 +10,7 @@ use glam::{Vec2, Vec3, Vec4};
 use level::Sector;
 use math::{FixedT, point_to_angle_2};
 use pic_data::{PicData, VoxelSlices};
-use render_common::{DrawBuffer, RenderView};
+use render_common::{RenderView, SceneTarget};
 use std::f32::consts::{FRAC_PI_2, TAU};
 
 use crate::{SCREEN_EDGE_SNAP, Software3D};
@@ -39,7 +39,7 @@ impl Software3D {
         sectors: &[Sector],
         view: &RenderView,
         pic_data: &PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         let player_pos = Vec3::new(view.x.into(), view.y.into(), view.viewz.into());
         let player_angle = view.angle.rad();
@@ -356,7 +356,7 @@ impl Software3D {
         &mut self,
         quad: &SpriteQuad,
         pic_data: &PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         // We need to split the quad into two triangles and render each,
         // because the clipping pipeline works with triangles (3 input vertices)
@@ -442,7 +442,7 @@ impl Software3D {
         slices: &[VoxelSliceRef],
         view_proj: &glam::Mat4,
         pic_data: &PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         #[cfg(feature = "hprof")]
         profile!("voxel_render_all");
@@ -463,8 +463,10 @@ impl Software3D {
 
             let columns = vq.columns;
             if vq.is_shadow {
-                let colourmap6 = pic_data.colourmap(6);
-                let buf = buffer.index_mut();
+                let colourmap6: &[usize; 256] = pic_data
+                    .colourmap(6)
+                    .try_into()
+                    .expect("colourmap block is 256 entries");
                 self.rasterizer.rasterize_voxel_fuzz(
                     vq.origin,
                     vq.u_vec,
@@ -475,12 +477,11 @@ impl Software3D {
                     view_proj,
                     cp,
                     colourmap6,
-                    buf,
+                    buffer,
                     buf_pitch,
                     &mut self.fuzz_pos,
                 );
             } else {
-                let buf = buffer.index_mut();
                 self.rasterizer.rasterize_voxel_texels(
                     vq.origin,
                     vq.u_vec,
@@ -491,7 +492,7 @@ impl Software3D {
                     view_proj,
                     cp,
                     &colourmaps,
-                    buf,
+                    buffer,
                     buf_pitch,
                 );
             }

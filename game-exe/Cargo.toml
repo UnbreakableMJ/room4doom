@@ -23,7 +23,7 @@ trig_lut = ["render-backend/trig_lut", "math/trig_lut"]
 
 display-sdl2 = ["render-backend/display-sdl2", "input/input-sdl2", "dep:sdl2"]
 display-softbuffer = ["render-backend/display-softbuffer", "input/input-winit", "dep:winit"]
-display-pixels = ["render-backend/display-pixels", "input/input-winit", "dep:winit", "dep:pixels"]
+display-wgpu = ["render-backend/display-wgpu", "input/input-winit", "dep:winit"]
 
 [dependencies]
 mimalloc = "0.1.43"
@@ -50,7 +50,6 @@ render-backend.workspace = true
 software3d.workspace = true
 sdl2 = { workspace = true, optional = true }
 winit = { workspace = true, optional = true }
-pixels = { workspace = true, optional = true }
 wad.workspace = true
 # utility deps
 simplelog.workspace = true

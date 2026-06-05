@@ -90,6 +90,16 @@ pub struct CLIOptions {
     /// rendering type <software, software3d>
     #[argh(option, short = 'r')]
     pub rendering: Option<config::RenderType>,
+    /// scene pixel format <indexed(default), 888, 565>
+    #[argh(option)]
+    pub pixels: Option<config::PixelMode>,
+    /// damage/bonus tint style <vanilla(default), smooth>
+    #[argh(option)]
+    pub palette_fade: Option<config::PaletteFade>,
+    /// post-process chain, comma-separated in order <none(default), stretch, crt>
+    /// e.g. crt, or stretch,crt
+    #[argh(option)]
+    pub post: Option<String>,
     /// music type <opl2(default), opl3, gus>
     #[argh(option, short = 'M')]
     pub music_type: Option<MusicType>,

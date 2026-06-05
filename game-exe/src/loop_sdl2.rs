@@ -3,10 +3,11 @@
 use doom_ui::{Finale, GameMenu, Intermission, Messages, Statusbar};
 use gamestate::Game;
 use gamestate::subsystems::GameSubsystem;
-use gamestate_traits::{ConfigTraits, GameTraits, KeyCode, SubsystemTrait};
+use gamestate_traits::{ConfigTraits as _, KeyCode, SubsystemTrait};
 use log::info;
+use pic_data::PixelFmt;
 use render_backend::{DisplayBackend, RenderTarget};
-use render_common::{GameRenderer, STBAR_HEIGHT};
+use render_common::STBAR_HEIGHT;
 
 use crate::CLIOptions;
 use crate::cheats::Cheats;
@@ -19,13 +20,16 @@ enum WindowAction {
 }
 
 /// SDL2 poll-based game loop. Never returns until `game.running` is false.
-pub fn d_doom_loop_sdl2(
+pub fn d_doom_loop_sdl2<P>(
     mut game: Game,
     mut input: input::InputSdl2,
     display: DisplayBackend,
     options: CLIOptions,
     mut user_config: crate::config::UserConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    P: PixelFmt,
+{
     let mut timestep = TimeStep::new();
     let mut cheats = Cheats::new();
 
@@ -45,13 +49,14 @@ pub fn d_doom_loop_sdl2(
     info!("Started title sequence");
 
     let debug_draw = options.debug_draw();
-    let mut render_backend = RenderTarget::new(
+    let mut render_backend = RenderTarget::<P>::new(
         options.hi_res.unwrap_or(true),
         options.dev_parm,
         &debug_draw,
         display,
         options.rendering.unwrap_or_default().into(),
     );
+    render_backend.set_pixel_mode(options.pixels.unwrap_or_default().into());
     if user_config.hud_size == 1 {
         render_backend.set_statusbar_height(STBAR_HEIGHT);
     }
@@ -100,10 +105,10 @@ pub fn d_doom_loop_sdl2(
             if user_config.hud_size == 1 {
                 render_backend.set_statusbar_height(STBAR_HEIGHT);
             }
-            if user_config.voxels {
-                if let Some(ref vm) = voxel_manager {
-                    render_backend.set_voxel_manager(vm.clone());
-                }
+            if user_config.voxels
+                && let Some(vm) = &voxel_manager
+            {
+                render_backend.set_voxel_manager(vm.clone());
             }
             menu = GameMenu::new(
                 game.game_type.mode,
@@ -157,7 +162,7 @@ pub fn d_doom_loop_sdl2(
                             game.pic_data.pwad_sprite_overrides(),
                         );
                     }
-                    if let Some(ref vm) = voxel_manager {
+                    if let Some(vm) = &voxel_manager {
                         render_backend.set_voxel_manager(vm.clone());
                     }
                 } else {
@@ -207,10 +212,10 @@ pub fn d_doom_loop_sdl2(
                 if user_config.hud_size == 1 {
                     render_backend.set_statusbar_height(STBAR_HEIGHT);
                 }
-                if user_config.voxels {
-                    if let Some(ref vm) = voxel_manager {
-                        render_backend.set_voxel_manager(vm.clone());
-                    }
+                if user_config.voxels
+                    && let Some(vm) = &voxel_manager
+                {
+                    render_backend.set_voxel_manager(vm.clone());
                 }
                 menu = GameMenu::new(
                     game.game_type.mode,

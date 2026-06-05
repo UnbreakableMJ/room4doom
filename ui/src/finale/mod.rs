@@ -151,10 +151,6 @@ impl SubsystemTrait for Finale {
         false
     }
 
-    fn get_palette(&self) -> &WadPalette {
-        &self.palette
-    }
-
     fn draw(&mut self, buffer: &mut impl DrawBuffer) {
         self.draw_pixels(buffer);
     }

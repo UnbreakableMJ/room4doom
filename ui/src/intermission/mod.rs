@@ -9,7 +9,7 @@ use hud_util::{
 };
 use log::warn;
 use math::m_random;
-use render_common::DrawBuffer;
+use render_common::{ByteOrder, DrawBuffer, PixelFmt};
 use sound_common::MusTrack;
 use std::collections::HashMap;
 use wad::WadData;
@@ -221,7 +221,8 @@ impl Intermission {
     /// Draw the fullscreen background patch, clearing the buffer first and
     /// centering.
     pub(crate) fn draw_bg(&self, x_offset: f32, sx: f32, sy: f32, buffer: &mut impl DrawBuffer) {
-        buffer.buf_mut().fill(BLACK);
+        let black = PixelFmt::from_argb(BLACK, ByteOrder::Argb);
+        buffer.buf_mut().fill(black);
         draw_patch(self.get_bg(), x_offset, 0.0, sx, sy, &self.palette, buffer);
     }
 
@@ -468,10 +469,6 @@ impl SubsystemTrait for Intermission {
         }
 
         false
-    }
-
-    fn get_palette(&self) -> &WadPalette {
-        &self.palette
     }
 
     fn draw(&mut self, buffer: &mut impl DrawBuffer) {

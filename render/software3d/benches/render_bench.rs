@@ -6,9 +6,9 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use math::{Angle, Bam, FixedT};
-use pic_data::PicData;
+use pic_data::{ByteOrder, PalLit, PicData};
 use render_common::{
-    BufferSize, DrawBuffer, HealthBleed, RenderPspDef, RenderView, ScreenEffect as _,
+    BufferSize, DrawBuffer, HealthBleed, PixelTarget, RenderPspDef, RenderView, SceneTarget,
 };
 use software3d::{DebugDrawOptions, Software3D};
 use std::path::Path;
@@ -52,14 +52,13 @@ impl HeadlessBuffer {
 }
 
 impl DrawBuffer for HeadlessBuffer {
+    type Pixel = u32;
+
     fn size(&self) -> &BufferSize {
         &self.size
     }
     fn set_pixel(&mut self, x: usize, y: usize, colour: u32) {
         self.data[y * self.w + x] = colour;
-    }
-    fn read_pixel(&self, x: usize, y: usize) -> u32 {
-        self.data[y * self.w + x]
     }
     fn get_buf_index(&self, x: usize, y: usize) -> usize {
         y * self.w + x
@@ -70,17 +69,12 @@ impl DrawBuffer for HeadlessBuffer {
     fn buf_mut(&mut self) -> &mut [u32] {
         &mut self.data
     }
-    fn set_index(&mut self, x: usize, y: usize, idx: u8) {
-        self.index[y * self.w + x] = idx;
-    }
-    fn index_mut(&mut self) -> &mut [u8] {
-        &mut self.index
-    }
-    fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32], _use_palette: usize) {
+    fn resolve(&mut self, pal_lit: &PalLit<u32>, use_palette: usize) {
         // Mirrors render-backend's DrawBuffer::resolve.
         if !self.bleed.is_active() {
+            let block = pal_lit.block(use_palette);
             for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
-                *out = unsafe { *palette.get_unchecked(idx as usize) };
+                *out = unsafe { *block.get_unchecked(idx as usize) };
             }
             return;
         }
@@ -90,11 +84,24 @@ impl DrawBuffer for HeadlessBuffer {
                 let idx = unsafe { *self.index.get_unchecked(i) } as usize;
                 let off = self.bleed.palette_offset(x, y, 0);
                 unsafe {
-                    *self.data.get_unchecked_mut(i) = *palettes_flat.get_unchecked(off * 256 + idx);
+                    *self.data.get_unchecked_mut(i) = *pal_lit.block(off).get_unchecked(idx);
                 }
                 i += 1;
             }
         }
+    }
+}
+
+impl SceneTarget for HeadlessBuffer {
+    type Texel = u8;
+    fn texel(&self, lit: u16) -> u8 {
+        lit as u8
+    }
+    fn put(&mut self, pos: usize, texel: u8) {
+        self.index[pos] = texel;
+    }
+    fn scene_fuzz(&mut self, dst_pos: usize, src_pos: usize, colourmap6: &[usize; 256]) {
+        self.index[dst_pos] = colourmap6[self.index[src_pos] as usize] as u8;
     }
 }
 
@@ -197,15 +204,60 @@ fn bench_resolve(
     // Fill the index plane once; the timed body only resolves.
     renderer.draw_view(&view, level, pics, &mut buffer);
     assert!(buffer.any_drawn(), "{prefix}: rendered a blank frame");
-    let palette = pics.palette().to_vec();
-    let palettes_flat = pics.palettes_flat().to_vec();
+    let pal_lit: PalLit<u32> = pics.build_pal_lit(ByteOrder::Argb);
 
     for (state, health) in [("none", 100), ("hurt", 50), ("crit", 5)] {
         buffer.set_health_bleed(health);
         c.bench_function(&format!("{prefix}/{state}"), |b| {
-            b.iter(|| buffer.resolve(&palette, &palettes_flat, 0));
+            b.iter(|| buffer.resolve(&pal_lit, 0));
         });
     }
+}
+
+/// Compare the full scene-draw-to-final-output cost of the three pixel modes at
+/// one size. Each bench produces the final output surface the way the backend
+/// does (no window, no copy beyond what the live path runs):
+/// - `indexed`: draw into the index plane, then `resolve` widens it into the u32
+///   output surface in place.
+/// - `rgb888`: scene writes final u32 pixels straight into the output surface.
+/// - `rgb565`: scene writes final u16 pixels straight into the output surface.
+fn bench_pixel_modes(
+    c: &mut Criterion,
+    prefix: &str,
+    level: &mut LevelData,
+    pics: &mut PicData,
+    (w, h): (usize, usize),
+) {
+    let mut renderer = Software3D::new(w as f32, h as f32, FOV, DebugDrawOptions::default());
+    let view = build_view(level);
+    let tint = pics.use_palette();
+    let pal32: PalLit<u32> = pics.build_pal_lit(ByteOrder::Argb);
+    let pal16: PalLit<u16> = pics.build_pal_lit(ByteOrder::Argb);
+    let size = BufferSize::new(w, h);
+
+    let mut index_buf = HeadlessBuffer::new(w, h);
+    c.bench_function(&format!("{prefix}/indexed"), |b| {
+        b.iter(|| {
+            renderer.draw_view(&view, level, pics, &mut index_buf);
+            index_buf.resolve(&pal32, 0);
+        });
+    });
+
+    let mut out32 = vec![0u32; w * h];
+    c.bench_function(&format!("{prefix}/rgb888"), |b| {
+        b.iter(|| {
+            let mut t = PixelTarget::new(&mut out32, size, w, &pal32, tint);
+            renderer.draw_view(&view, level, pics, &mut t);
+        });
+    });
+
+    let mut out16 = vec![0u16; w * h];
+    c.bench_function(&format!("{prefix}/rgb565"), |b| {
+        b.iter(|| {
+            let mut t = PixelTarget::new(&mut out16, size, w, &pal16, tint);
+            renderer.draw_view(&view, level, pics, &mut t);
+        });
+    });
 }
 
 fn benches(c: &mut Criterion) {
@@ -214,6 +266,8 @@ fn benches(c: &mut Criterion) {
         bench_scene(c, "sw3d/e1m2/1280x800", &mut level, &mut pics, HI);
         bench_resolve(c, "sw3d/resolve/320x200", &mut level, &mut pics, LOW);
         bench_resolve(c, "sw3d/resolve/1280x800", &mut level, &mut pics, HI);
+        bench_pixel_modes(c, "sw3d/pixmode/e1m2/320x200", &mut level, &mut pics, LOW);
+        bench_pixel_modes(c, "sw3d/pixmode/e1m2/1280x800", &mut level, &mut pics, HI);
     }
     if let Some((mut level, mut pics)) = load_pwad(
         &test_utils::doom_wad_path(),

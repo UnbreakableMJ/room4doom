@@ -7,8 +7,8 @@ use level::{
 };
 #[cfg(feature = "bench")]
 use math::Angle;
-use pic_data::{PicData, VoxelManager};
-use render_common::{DrawBuffer, RenderView};
+use pic_data::{ByteOrder, PicData, PixelFmt, VoxelManager};
+use render_common::{RenderView, SceneTarget};
 
 use std::f32::consts::PI;
 use std::sync::Arc;
@@ -478,7 +478,7 @@ impl Software3D {
     /// Runs after all polygons and sprites are rendered. Pixels at depth
     /// <= SKY_DEPTH (sky-marked walls or never-written -1.0) get the sky
     /// sampled at screen coordinates.
-    fn draw_sky_fill(&self, _pic_data: &PicData, buffer: &mut impl DrawBuffer) {
+    fn draw_sky_fill(&self, _pic_data: &PicData, buffer: &mut impl SceneTarget) {
         if self.sky.extended.is_empty() {
             return;
         }
@@ -489,6 +489,7 @@ impl Software3D {
 
         let w = self.width as usize;
         let vh = self.view_height as usize;
+        let pitch = buffer.pitch();
         for y in 0..vh {
             let sky_r = (y as f32 * self.sky.v_scale + self.sky.pitch_offset) as i32;
             for x in 0..w {
@@ -498,7 +499,7 @@ impl Software3D {
                     if let Some(idx) =
                         sample_sky_pixel(sky_col, sky_r, sky_tex_height, sky_combined)
                     {
-                        buffer.set_index(x, y, idx);
+                        buffer.scene_store(y * pitch + x, idx as u16);
                     }
                 }
             }
@@ -746,7 +747,7 @@ impl Software3D {
         sectors: &[Sector],
         pic_data: &PicData,
         player_light: usize,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         self.rasterizer.screen_vertices_len = 0;
         self.rasterizer.tex_coords_len = 0;
@@ -1098,7 +1099,7 @@ impl Software3D {
         view: &RenderView,
         level_data: &LevelData,
         pic_data: &mut PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) -> bool {
         self.prepare_vertex_cache(&level_data.bsp_3d);
         self.current_frame_id = self.current_frame_id.wrapping_add(1);
@@ -1113,7 +1114,8 @@ impl Software3D {
         self.update_view_matrix(view);
 
         if let Some(colour) = self.debug.options.clear_colour {
-            buffer.buf_mut().fill(colour);
+            let c = PixelFmt::from_argb(colour, ByteOrder::Argb);
+            buffer.buf_mut().fill(c);
         }
 
         self.stats.reset();
@@ -1195,7 +1197,7 @@ impl Software3D {
     /// Draw the debug outline/normal overlays onto the resolved u32 buffer.
     /// Called by the frame after resolve (geometry was captured during
     /// `draw_view`; this only rasterizes the cached lines).
-    pub fn draw_debug_overlays(&mut self, buffer: &mut impl DrawBuffer) {
+    pub fn draw_debug_overlays(&mut self, buffer: &mut impl SceneTarget) {
         if self.debug.options.outline || self.debug.options.wireframe {
             self.draw_debug_polygon_outlines(buffer);
         }
@@ -1215,7 +1217,7 @@ impl Software3D {
         pitch_rad: f32,
         level_data: &LevelData,
         pic_data: &mut PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         let LevelData {
             sectors,
@@ -1266,7 +1268,7 @@ impl Software3D {
         player_pos: Vec3,
         player_light: usize,
         pic_data: &mut PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         if self.rasterizer.depth_buffer.is_full() {
             return;

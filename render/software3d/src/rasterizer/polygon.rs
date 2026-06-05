@@ -5,7 +5,7 @@ use std::mem;
 use glam::Vec2;
 use level::{SurfaceKind, SurfacePolygon, WallType};
 use pic_data::PicData;
-use render_common::{DrawBuffer, FUZZ_TABLE};
+use render_common::{FUZZ_TABLE, SceneTarget};
 
 use crate::Software3D;
 
@@ -29,7 +29,7 @@ impl Software3D {
         brightness: usize,
         bounds: (Vec2, Vec2),
         pic_data: &PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         #[cfg(feature = "hprof")]
         profile!("draw_polygon");
@@ -79,7 +79,6 @@ impl Software3D {
 
         let inv_w_slice = &self.rasterizer.inv_w_buffer[..self.rasterizer.inv_w_len];
         let buf_pitch = buffer.pitch();
-        let buf = buffer.index_mut();
         let mut did_draw = false;
         for y in y_start..=y_end {
             let y_f = y as f32;
@@ -168,7 +167,7 @@ impl Software3D {
                         if let Some(color) =
                             sample_sky_pixel(sky_col, sky_r, sky_tex_height, sky_combined)
                         {
-                            buf[y * buf_pitch + x] = color;
+                            buffer.scene_store(y * buf_pitch + x, color as u16);
                         }
                     }
                     edge_inv_w += edge_inv_w_dx;
@@ -237,7 +236,7 @@ impl Software3D {
                                     .depth_buffer
                                     .set_depth_unchecked(x, y, edge_inv_w);
                             }
-                            buf[y * buf_pitch + x] = color as u8;
+                            buffer.scene_store(y * buf_pitch + x, color);
                         } else {
                             // Depth test before UV — avoids the perspective divide on misses
                             if !self
@@ -257,7 +256,7 @@ impl Software3D {
                                 pic_data.base_colourmap(brightness, edge_inv_w * LIGHT_SCALE);
                             let color = texture_sampler.sample(u, v, colourmap);
 
-                            buf[y * buf_pitch + x] = color as u8;
+                            buffer.scene_store(y * buf_pitch + x, color);
                         }
                         did_draw = true;
 
@@ -283,13 +282,14 @@ impl Software3D {
         &mut self,
         quad: &crate::scene::sprites::SpriteQuad,
         pic_data: &PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         let Some(setup) = self.sprite_setup(quad, pic_data) else {
             return;
         };
 
         let patch = pic_data.sprite_patch(quad.patch_index);
+        let sprite_pitch = buffer.pitch();
 
         for y in setup.y_start..=setup.y_end {
             let Some(span) = Self::sprite_scanline(&setup, y) else {
@@ -330,7 +330,8 @@ impl Software3D {
                 }
 
                 let colourmap = pic_data.base_colourmap(quad.brightness, edge_inv_w * LIGHT_SCALE);
-                buffer.set_index(x, y, colourmap[color_index as usize] as u8);
+                let lit = colourmap[color_index as usize] as u16;
+                buffer.scene_store(y * sprite_pitch + x, lit);
 
                 self.rasterizer
                     .depth_buffer
@@ -348,13 +349,16 @@ impl Software3D {
         &mut self,
         quad: &crate::scene::sprites::SpriteQuad,
         pic_data: &PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         let Some(setup) = self.sprite_setup(quad, pic_data) else {
             return;
         };
         let patch = pic_data.sprite_patch(quad.patch_index);
-        let colourmap6 = pic_data.colourmap(6);
+        let colourmap6: &[usize; 256] = pic_data
+            .colourmap(6)
+            .try_into()
+            .expect("colourmap block is 256 entries");
         let pitch = buffer.pitch();
         let h_clamp = setup.height_f32 as i32 - 1;
 
@@ -396,10 +400,9 @@ impl Software3D {
                     continue;
                 }
 
-                let buf = buffer.index_mut();
                 let offset = FUZZ_TABLE[self.fuzz_pos % FUZZ_TABLE.len()];
                 let src_y = (y as i32 + offset).clamp(0, h_clamp) as usize;
-                buf[y * pitch + x] = colourmap6[buf[src_y * pitch + x] as usize] as u8;
+                buffer.scene_fuzz(y * pitch + x, src_y * pitch + x, colourmap6);
                 self.fuzz_pos += 1;
 
                 self.rasterizer

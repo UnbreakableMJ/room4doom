@@ -147,10 +147,6 @@ impl SubsystemTrait for Messages {
         false
     }
 
-    fn get_palette(&self) -> &WadPalette {
-        &self.palette
-    }
-
     fn draw(&mut self, buffer: &mut impl DrawBuffer) {
         self.screen_width = buffer.size().width();
         self.screen_height = buffer.size().height();

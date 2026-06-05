@@ -11,7 +11,7 @@ use level::{LevelData, Sector, Segment, SubSector, is_subsector, subsector_index
 use log::trace;
 use math::{ANG90, ANG180, ANGLETOFINESHIFT, Angle, Bam, FixedT};
 use pic_data::PicData;
-use render_common::{DrawBuffer, RenderView};
+use render_common::{RenderView, SceneTarget};
 use std::mem;
 
 const MAX_SEGS: usize = 128;
@@ -102,7 +102,7 @@ impl Software25D {
         view: &RenderView,
         level_data: &LevelData,
         pic_data: &mut PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) -> bool {
         // TODO: pull duplicate functionality out to a function
         self.clear(FixedT::from(rend.size().width()));
@@ -286,7 +286,7 @@ impl Software25D {
         seg: &'a Segment,
         front_sector: &'a Sector,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         #[cfg(feature = "hprof")]
         profile!("add_line");
@@ -377,7 +377,7 @@ impl Software25D {
         view: &RenderView,
         subsect: &SubSector,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         #[cfg(feature = "hprof")]
         profile!("draw_subsector");
@@ -421,7 +421,7 @@ impl Software25D {
         seg: &Segment,
         view: &RenderView,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         let mut next;
 
@@ -530,7 +530,7 @@ impl Software25D {
         seg: &Segment,
         view: &RenderView,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         // Find the first range that touches the range
         //  (adjacent pixels are touching).
@@ -629,7 +629,7 @@ impl Software25D {
         view: &RenderView,
         node_id: u32,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
         count: &mut usize,
     ) {
         // profile!("render_bsp_node");

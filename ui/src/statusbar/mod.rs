@@ -635,10 +635,6 @@ impl SubsystemTrait for Statusbar {
         false
     }
 
-    fn get_palette(&self) -> &WadPalette {
-        &self.palette
-    }
-
     fn draw(&mut self, buffer: &mut impl DrawBuffer) {
         let (sx, _) = hud_scale(buffer);
         if self.widescreen {

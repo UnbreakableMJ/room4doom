@@ -6,8 +6,8 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use math::{Angle, Bam, FixedT};
-use pic_data::PicData;
-use render_common::{BufferSize, DrawBuffer, RenderPspDef, RenderView};
+use pic_data::{PalLit, PicData};
+use render_common::{BufferSize, DrawBuffer, RenderPspDef, RenderView, SceneTarget};
 use software25d::Software25D;
 use std::path::Path;
 use wad::WadData;
@@ -43,14 +43,13 @@ impl HeadlessBuffer {
 }
 
 impl DrawBuffer for HeadlessBuffer {
+    type Pixel = u32;
+
     fn size(&self) -> &BufferSize {
         &self.size
     }
     fn set_pixel(&mut self, x: usize, y: usize, colour: u32) {
         self.data[y * self.w + x] = colour;
-    }
-    fn read_pixel(&self, x: usize, y: usize) -> u32 {
-        self.data[y * self.w + x]
     }
     fn get_buf_index(&self, x: usize, y: usize) -> usize {
         y * self.w + x
@@ -61,16 +60,24 @@ impl DrawBuffer for HeadlessBuffer {
     fn buf_mut(&mut self) -> &mut [u32] {
         &mut self.data
     }
-    fn set_index(&mut self, x: usize, y: usize, idx: u8) {
-        self.index[y * self.w + x] = idx;
-    }
-    fn index_mut(&mut self) -> &mut [u8] {
-        &mut self.index
-    }
-    fn resolve(&mut self, palette: &[u32], _palettes_flat: &[u32], _use_palette: usize) {
+    fn resolve(&mut self, pal_lit: &PalLit<u32>, use_palette: usize) {
+        let block = pal_lit.block(use_palette);
         for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
-            *out = palette[idx as usize];
+            *out = block[idx as usize];
         }
+    }
+}
+
+impl SceneTarget for HeadlessBuffer {
+    type Texel = u8;
+    fn texel(&self, lit: u16) -> u8 {
+        lit as u8
+    }
+    fn put(&mut self, pos: usize, texel: u8) {
+        self.index[pos] = texel;
+    }
+    fn scene_fuzz(&mut self, dst_pos: usize, src_pos: usize, colourmap6: &[usize; 256]) {
+        self.index[dst_pos] = colourmap6[self.index[src_pos] as usize] as u8;
     }
 }
 

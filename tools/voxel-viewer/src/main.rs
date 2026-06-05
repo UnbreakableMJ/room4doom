@@ -1,11 +1,16 @@
 #[cfg(feature = "hprof")]
 use coarse_prof::profile;
 use glam::{Mat4, Vec3};
+use pic_data::PalLit;
 use pic_data::voxel::kvx::VoxelModel;
 use pic_data::voxel::slices::{self, VoxelColumn, VoxelSlices};
-use pixels::{Pixels, SurfaceTexture};
+use render_common::{BufferSize, DrawBuffer, SceneTarget};
+use softbuffer::{Context, Pixel, Surface};
 use software3d::rasterizer::Rasterizer;
 use software3d::voxel::collect::{VoxelCollectParams, VoxelSliceRef, collect_visible_slices};
+use std::mem::take;
+use std::num::NonZeroU32;
+use std::slice::from_raw_parts_mut;
 use std::sync::Arc;
 use std::time::Instant;
 use winit::application::ApplicationHandler;
@@ -18,6 +23,46 @@ use winit::window::{Window, WindowId};
 const W: u32 = 640;
 const H: u32 = 480;
 const FOV_SCALE: f32 = H as f32 * 1.2;
+
+/// Minimal index-plane `DrawBuffer` for the voxel rasteriser. The viewer
+/// resolves the index plane to u32 itself; the u32 side is unused here.
+struct IndexBuf<'a> {
+    size: BufferSize,
+    index: &'a mut [u8],
+    w: usize,
+}
+
+impl DrawBuffer for IndexBuf<'_> {
+    type Pixel = u32;
+
+    fn size(&self) -> &BufferSize {
+        &self.size
+    }
+    fn set_pixel(&mut self, _x: usize, _y: usize, _colour: u32) {}
+    fn get_buf_index(&self, x: usize, y: usize) -> usize {
+        y * self.w + x
+    }
+    fn pitch(&self) -> usize {
+        self.w
+    }
+    fn buf_mut(&mut self) -> &mut [u32] {
+        &mut []
+    }
+    fn resolve(&mut self, _pal_lit: &PalLit<u32>, _use_palette: usize) {}
+}
+
+impl SceneTarget for IndexBuf<'_> {
+    type Texel = u8;
+    fn texel(&self, lit: u16) -> u8 {
+        lit as u8
+    }
+    fn put(&mut self, pos: usize, texel: u8) {
+        self.index[pos] = texel;
+    }
+    fn scene_fuzz(&mut self, dst_pos: usize, src_pos: usize, colourmap6: &[usize; 256]) {
+        self.index[dst_pos] = colourmap6[self.index[src_pos] as usize] as u8;
+    }
+}
 
 struct Camera {
     yaw: f32,
@@ -57,7 +102,9 @@ impl Camera {
 
 struct App {
     window: Option<Arc<Window>>,
-    pixels: Option<Pixels<'static>>,
+    surface: Option<Surface<Arc<Window>, Arc<Window>>>,
+    /// `W*H` compose buffer; presented 1:1 into the softbuffer surface.
+    frame: Vec<u32>,
     model: VoxelModel,
     slices: VoxelSlices,
     palette: [(u8, u8, u8); 256],
@@ -66,7 +113,6 @@ struct App {
     wireframe: u8,      // 0=off, 1=all quads, 2=collected only
     single_slice: bool, // view one slice at a time
     slice_index: usize, // current slice index on the selected axis
-    vsync: bool,
     rasterizer: Rasterizer,
     camera: Camera,
     mouse_dragging: bool,
@@ -84,15 +130,16 @@ impl App {
     fn render(&mut self) {
         #[cfg(feature = "hprof")]
         profile!("render");
-        let Some(pixels) = self.pixels.as_mut() else {
+        if self.surface.is_none() {
             return;
-        };
-
-        let frame = pixels.frame_mut();
-        // Clear to dark grey
-        for pixel in frame.chunks_exact_mut(4) {
-            pixel.copy_from_slice(&[30, 30, 35, 255]);
         }
+
+        // Take the compose buffer so `self.rasterizer`/`self.palette_u32` can be
+        // borrowed disjointly during render; restored before present.
+        let mut owned = take(&mut self.frame);
+        let frame: &mut [u32] = &mut owned;
+        // Clear to dark grey (0xAARRGGBB).
+        frame.fill(0xFF1E_1E23);
 
         if self.camera.auto_rotate {
             self.camera.yaw += 0.02;
@@ -165,11 +212,8 @@ impl App {
             let identity_map: Vec<usize> = (0..256).collect();
             let colourmaps: Vec<&[usize]> = vec![&identity_map; 48];
             self.rasterizer.depth_buffer_mut().reset();
-            let frame_u32: &mut [u32] = unsafe {
-                std::slice::from_raw_parts_mut(frame.as_mut_ptr().cast::<u32>(), (W * H) as usize)
-            };
             // Voxel texels render into an 8-bit palette-index plane, resolved to
-            // `frame_u32` below; the wireframe overlay then draws true-colour.
+            // `frame` below; the wireframe overlay then draws true-colour.
             let mut frame_index = vec![0u8; (W * H) as usize];
 
             // Collect visible slices using the shared pipeline
@@ -260,26 +304,33 @@ impl App {
             // Sort front-to-back for optimal depth rejection
             voxel_slices.sort_unstable_by(|a, b| a.depth.total_cmp(&b.depth));
 
-            for vq in &voxel_slices {
-                let columns = vq.columns;
-                self.rasterizer.rasterize_voxel_texels(
-                    vq.origin,
-                    vq.u_vec,
-                    vq.v_vec,
-                    columns,
-                    vq.width,
-                    vq.height,
-                    &view_proj,
-                    cam_pos,
-                    &colourmaps,
-                    &mut frame_index,
-                    W as usize,
-                );
-                rendered += 1;
+            {
+                let mut index_buf = IndexBuf {
+                    size: BufferSize::new(W as usize, H as usize),
+                    index: &mut frame_index,
+                    w: W as usize,
+                };
+                for vq in &voxel_slices {
+                    let columns = vq.columns;
+                    self.rasterizer.rasterize_voxel_texels(
+                        vq.origin,
+                        vq.u_vec,
+                        vq.v_vec,
+                        columns,
+                        vq.width,
+                        vq.height,
+                        &view_proj,
+                        cam_pos,
+                        &colourmaps,
+                        &mut index_buf,
+                        W as usize,
+                    );
+                    rendered += 1;
+                }
             }
 
             // Resolve the voxel index plane into the displayed u32 frame.
-            for (out, &idx) in frame_u32.iter_mut().zip(frame_index.iter()) {
+            for (out, &idx) in frame.iter_mut().zip(frame_index.iter()) {
                 if idx != 0 {
                     *out = self.palette_u32[idx as usize];
                 }
@@ -315,7 +366,7 @@ impl App {
                             .collect();
                         for i in 0..4 {
                             if let (Some(a), Some(b)) = (proj[i], proj[(i + 1) % 4]) {
-                                draw_line(frame_u32, W as i32, H as i32, a.0, a.1, b.0, b.1, color);
+                                draw_line(frame, W as i32, H as i32, a.0, a.1, b.0, b.1, color);
                             }
                         }
                     }
@@ -361,8 +412,7 @@ impl App {
                                 for i in 0..4 {
                                     if let (Some(a), Some(b)) = (proj[i], proj[(i + 1) % 4]) {
                                         draw_line(
-                                            frame_u32, W as i32, H as i32, a.0, a.1, b.0, b.1,
-                                            *color,
+                                            frame, W as i32, H as i32, a.0, a.1, b.0, b.1, *color,
                                         );
                                     }
                                 }
@@ -373,7 +423,8 @@ impl App {
             }
         }
 
-        pixels.render().ok();
+        self.frame = owned;
+        self.present();
 
         let frame_ms = self.last_frame.elapsed().as_secs_f32() * 1000.0;
         self.last_frame = Instant::now();
@@ -395,6 +446,36 @@ impl App {
             self.last_print = Instant::now();
         }
     }
+
+    /// Copy the `W*H` compose buffer 1:1 into the softbuffer surface and present.
+    fn present(&mut self) {
+        let Some(surface) = self.surface.as_mut() else {
+            return;
+        };
+        surface
+            .resize(NonZeroU32::new(W).unwrap(), NonZeroU32::new(H).unwrap())
+            .expect("resize softbuffer surface");
+        let mut buf = surface.next_buffer().expect("acquire softbuffer buffer");
+        let stride = buf.byte_stride().get() as usize / size_of::<Pixel>();
+        let dst = pixels_as_u32_mut(buf.pixels());
+        let w = W as usize;
+        if stride == w {
+            dst.copy_from_slice(&self.frame);
+        } else {
+            for y in 0..H as usize {
+                dst[y * stride..y * stride + w].copy_from_slice(&self.frame[y * w..y * w + w]);
+            }
+        }
+        buf.present().expect("present softbuffer");
+    }
+}
+
+/// Reinterpret softbuffer's `&mut [Pixel]` as `&mut [u32]`.
+fn pixels_as_u32_mut(pixels: &mut [Pixel]) -> &mut [u32] {
+    let len = pixels.len();
+    // SAFETY: softbuffer `Pixel` is `repr(C, align(4))` of four u8 — same layout
+    // as u32; length preserved.
+    unsafe { from_raw_parts_mut(pixels.as_mut_ptr().cast::<u32>(), len) }
 }
 
 fn draw_line(buf: &mut [u32], w: i32, h: i32, x0: f32, y0: f32, x1: f32, y1: f32, color: u32) {
@@ -425,7 +506,7 @@ fn draw_line(buf: &mut [u32], w: i32, h: i32, x0: f32, y0: f32, x1: f32, y1: f32
 }
 
 fn draw_rect(
-    frame: &mut [u8],
+    frame: &mut [u32],
     depth: &mut [f32],
     sx: f32,
     sy: f32,
@@ -436,6 +517,7 @@ fn draw_rect(
     g: u8,
     b: u8,
 ) {
+    let colour = 0xFF00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | b as u32;
     let (x0, y0) = (sx as i32, sy as i32);
     for py in y0..y0 + h {
         if py < 0 || py >= H as i32 {
@@ -448,10 +530,7 @@ fn draw_rect(
             let idx = py as usize * W as usize + px as usize;
             if z < depth[idx] {
                 depth[idx] = z;
-                let p = idx * 4;
-                frame[p] = r;
-                frame[p + 1] = g;
-                frame[p + 2] = b;
+                frame[idx] = colour;
             }
         }
     }
@@ -488,21 +567,15 @@ impl ApplicationHandler for App {
                 "Voxel Viewer [DIRECT]"
             })
             .with_inner_size(LogicalSize::new(W, H))
-            .with_resizable(true);
+            .with_resizable(false);
         let window = Arc::new(event_loop.create_window(attrs).unwrap());
-        let phys = window.inner_size();
-        // Pass the `Arc<Window>` (owned, `'static`) into the surface so `Pixels`
-        // genuinely outlives nothing it borrows — no lifetime transmute needed.
-        let surface = SurfaceTexture::new(phys.width, phys.height, window.clone());
-        let px = if self.vsync {
-            Pixels::new(W, H, surface).unwrap()
-        } else {
-            pixels::PixelsBuilder::new(W, H, surface)
-                .present_mode(pixels::wgpu::PresentMode::AutoNoVsync)
-                .build()
-                .unwrap()
-        };
-        self.pixels = Some(px);
+        // Leak the context: one display for the process lifetime, and `Surface`
+        // borrows `&Context` (same pattern as the game softbuffer backend).
+        let context: &'static Context<Arc<Window>> = Box::leak(Box::new(
+            Context::new(window.clone()).expect("softbuffer context"),
+        ));
+        let surface = Surface::new(context, window.clone()).expect("softbuffer surface");
+        self.surface = Some(surface);
         self.window = Some(window);
     }
 
@@ -523,11 +596,6 @@ impl ApplicationHandler for App {
                     if self.frame_count % 120 == 0 {
                         coarse_prof::write(&mut std::io::stdout()).unwrap();
                     }
-                }
-            }
-            WindowEvent::Resized(new_size) => {
-                if let Some(pixels) = self.pixels.as_mut() {
-                    pixels.resize_surface(new_size.width, new_size.height).ok();
                 }
             }
             WindowEvent::MouseInput {
@@ -601,12 +669,11 @@ impl ApplicationHandler for App {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: voxel-viewer <kvx-file> [--slices] [--no-vsync] [palette.lmp]");
+        eprintln!("Usage: voxel-viewer <kvx-file> [--slices] [palette.lmp]");
         std::process::exit(1);
     }
 
     let use_slices = args.iter().any(|a| a == "--slices");
-    let vsync = !args.iter().any(|a| a == "--no-vsync");
     let kvx_data = std::fs::read(&args[1]).unwrap_or_else(|e| {
         eprintln!("Failed to read {}: {}", args[1], e);
         std::process::exit(1);
@@ -683,11 +750,11 @@ fn main() {
         );
     }
 
-    // Build u32 palette (0xAABBGGRR little-endian = RGBA byte order)
+    // Build u32 palette (0xAARRGGBB).
     let mut palette_u32 = [0u32; 256];
     for i in 0..256 {
         let (r, g, b) = palette[i];
-        palette_u32[i] = 0xFF000000 | ((b as u32) << 16) | ((g as u32) << 8) | r as u32;
+        palette_u32[i] = 0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | b as u32;
     }
 
     // Focus midway between pivot origin and AABB center
@@ -704,7 +771,8 @@ fn main() {
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     let mut app = App {
         window: None,
-        pixels: None,
+        surface: None,
+        frame: vec![0u32; (W * H) as usize],
         model,
         slices,
         palette,
@@ -713,7 +781,6 @@ fn main() {
         wireframe: 0,
         single_slice: false,
         slice_index: 0,
-        vsync,
         rasterizer: Rasterizer::new(W, H),
         camera: Camera {
             yaw: 0.5,

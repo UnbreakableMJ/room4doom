@@ -1,5 +1,5 @@
 use pic_data::PicData;
-use render_common::{DrawBuffer, FUZZ_TABLE, RenderPspDef, RenderView};
+use render_common::{FUZZ_TABLE, RenderPspDef, RenderView, SceneTarget};
 
 use crate::Software3D;
 
@@ -41,7 +41,7 @@ impl Software3D {
         &mut self,
         view: &RenderView,
         pic_data: &PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         let sector_light = view.sector_lightlevel >> 4;
         // Weapons get +2 extra light (matching original Doom behaviour)
@@ -72,7 +72,7 @@ impl Software3D {
         base_brightness: usize,
         is_shadow: bool,
         pic_data: &PicData,
-        buffer: &mut impl DrawBuffer,
+        buffer: &mut impl SceneTarget,
     ) {
         if !psp.active {
             return;
@@ -145,7 +145,10 @@ impl Software3D {
             None
         };
         // Fixed darkening colourmap for the spectre/shadow fuzz effect.
-        let colourmap6 = pic_data.colourmap(6);
+        let colourmap6: &[usize; 256] = pic_data
+            .colourmap(6)
+            .try_into()
+            .expect("colourmap block is 256 entries");
 
         // Clamp draw region to screen bounds
         let draw_x1 = x1.max(0.0).ceil() as usize;
@@ -188,15 +191,15 @@ impl Software3D {
                     continue;
                 }
 
+                let pitch = buffer.pitch();
                 if let Some(colourmap) = colourmap {
-                    buffer.set_index(x, y, colourmap[color_index as usize] as u8);
+                    let lit = colourmap[color_index as usize] as u16;
+                    buffer.scene_store(y * pitch + x, lit);
                 } else {
                     // OG spectre fuzz: darken a neighbour's index via colourmap 6.
-                    let pitch = buffer.pitch();
-                    let idx = buffer.index_mut();
                     let offset = FUZZ_TABLE[self.fuzz_pos % FUZZ_TABLE.len()];
                     let src_y = (y as i32 + offset).clamp(0, height as i32 - 1) as usize;
-                    idx[y * pitch + x] = colourmap6[idx[src_y * pitch + x] as usize] as u8;
+                    buffer.scene_fuzz(y * pitch + x, src_y * pitch + x, colourmap6);
                     self.fuzz_pos += 1;
                 }
             }

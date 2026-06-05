@@ -10,7 +10,7 @@ use math::{ANG45, FRACBITS, FRACUNIT, FixedT, r_point_to_angle};
 
 const FINEANGLES: usize = 8192;
 use pic_data::PicData;
-use render_common::{DrawBuffer, FUZZ_TABLE, RenderPspDef, RenderView};
+use render_common::{FUZZ_TABLE, RenderPspDef, RenderView, SceneTarget};
 
 use super::bsp::Software25D;
 use super::defs::DrawSeg;
@@ -287,7 +287,7 @@ impl Software25D {
         clip_bottom: &[FixedT],
         clip_top: &[FixedT],
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         let patch = pic_data.sprite_patch(vis.patch);
 
@@ -327,7 +327,10 @@ impl Software25D {
                 if is_shadow {
                     draw_fuzz_column(
                         texture_column,
-                        pic_data.colourmap(6),
+                        pic_data
+                            .colourmap(6)
+                            .try_into()
+                            .expect("colourmap block is 256 entries"),
                         dc_iscale,
                         self.seg_renderer.centery,
                         x,
@@ -372,7 +375,7 @@ impl Software25D {
         view: &RenderView,
         vis: &VisSprite,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         let size = *rend.size();
         let mut clip_bottom = vec![FixedT::from(-2); size.width_usize()];
@@ -466,7 +469,7 @@ impl Software25D {
         &mut self,
         view: &RenderView,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         let light = (view.sector_lightlevel >> 4) + view.extralight;
         for sprite in &view.psprites {
@@ -489,7 +492,7 @@ impl Software25D {
         light: usize,
         is_shadow: bool,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         let size = *rend.size();
         let f = size.height() / 200;
@@ -572,7 +575,7 @@ impl Software25D {
         &mut self,
         view: &RenderView,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         // Sort only the vissprites used
         self.vissprites[..self.next_vissprite].sort();
@@ -617,7 +620,7 @@ impl Software25D {
         x1: FixedT,
         x2: FixedT,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         let size = *rend.size();
         let seg = unsafe { ds.curline.as_ref() };
@@ -739,11 +742,12 @@ fn draw_masked_column(
     dc_texturemid: FixedT,
     yl: FixedT,
     mut yh: FixedT,
-    pixels: &mut impl DrawBuffer,
+    pixels: &mut impl SceneTarget,
 ) {
     if yh >= FixedT::from(pixels.size().height()) {
         yh = FixedT::from(pixels.size().height()) - 1;
     }
+    let pitch = pixels.pitch();
     let mut frac = dc_texturemid + (yl - centery) * fracstep;
     for y in yl.to_i32() as usize..=yh.to_i32() as usize {
         let select = frac.to_i32() as usize;
@@ -754,7 +758,8 @@ fn draw_masked_column(
             frac += fracstep;
             continue;
         }
-        pixels.set_index(dc_x, y, colourmap[texture_column[select] as usize] as u8);
+        let lit = colourmap[texture_column[select] as usize] as u16;
+        pixels.scene_store(y * pitch + dc_x, lit);
         frac += fracstep;
     }
 }
@@ -767,14 +772,14 @@ fn draw_masked_column(
 #[allow(clippy::too_many_arguments)]
 fn draw_fuzz_column(
     texture_column: &[u16],
-    colourmap6: &[usize],
+    colourmap6: &[usize; 256],
     fracstep: FixedT,
     centery: FixedT,
     dc_x: usize,
     dc_texturemid: FixedT,
     yl: FixedT,
     mut yh: FixedT,
-    pixels: &mut impl DrawBuffer,
+    pixels: &mut impl SceneTarget,
     fuzz_pos: &mut usize,
 ) {
     let height = pixels.size().height_usize();
@@ -793,10 +798,9 @@ fn draw_fuzz_column(
             continue;
         }
         // OG spectre fuzz: darken a neighbour's index via colourmap 6.
-        let idx = pixels.index_mut();
         let offset = FUZZ_TABLE[*fuzz_pos % FUZZ_TABLE.len()];
         let src_y = (y as i32 + offset).clamp(0, height as i32 - 1) as usize;
-        idx[y * pitch + dc_x] = colourmap6[idx[src_y * pitch + dc_x] as usize] as u8;
+        pixels.scene_fuzz(y * pitch + dc_x, src_y * pitch + dc_x, colourmap6);
         *fuzz_pos += 1;
         frac += fracstep;
     }

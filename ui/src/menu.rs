@@ -11,7 +11,7 @@ use hud_util::{
     draw_patch, draw_text_line, draw_text_line_tinted, fullscreen_scale, hud_scale,
     measure_text_line,
 };
-use render_common::DrawBuffer;
+use render_common::{ByteOrder, DrawBuffer, PixelFmt};
 use sound_common::SfxName;
 use std::collections::HashMap;
 use wad::WadData;
@@ -977,12 +977,8 @@ impl GameMenu {
 
         if self.active || self.in_help {
             if self.dim_background {
-                let buf = pixels.buf_mut();
-                for pixel in buf.iter_mut() {
-                    let r = (*pixel >> 16) & 0xFF;
-                    let g = (*pixel >> 8) & 0xFF;
-                    let b = *pixel & 0xFF;
-                    *pixel = 0xFF000000 | ((r >> 1) << 16) | ((g >> 1) << 8) | (b >> 1);
+                for pixel in pixels.buf_mut().iter_mut() {
+                    *pixel = pixel.darken();
                 }
             }
 
@@ -993,7 +989,8 @@ impl GameMenu {
 
             // Full-screen readthis/help pages: use CRT-correct aspect
             let (draw_sx, draw_sy) = if is_fullscreen {
-                pixels.buf_mut().fill(BLACK);
+                let black = PixelFmt::from_argb(BLACK, ByteOrder::Argb);
+                pixels.buf_mut().fill(black);
                 fullscreen_scale(pixels)
             } else {
                 (sx, sy)
@@ -1214,7 +1211,6 @@ impl SubsystemTrait for GameMenu {
 
         if !self.active {
             // F-keys
-            game.start_sound(SfxName::Swtchn);
             match sc {
                 KeyCode::F1 => {
                     // HELP
@@ -1223,8 +1219,8 @@ impl SubsystemTrait for GameMenu {
                         self.current_menu = MenuIndex::ReadThis1;
                     } else {
                         self.current_menu = MenuIndex::TopLevel;
-                        game.start_sound(SfxName::Swtchx);
                     }
+                    game.start_sound(SfxName::Swtchn);
                     return true;
                 }
                 KeyCode::F2 => {
@@ -1235,12 +1231,14 @@ impl SubsystemTrait for GameMenu {
                     }
                     self.active = true;
                     self.open_save_menu(game);
+                    game.start_sound(SfxName::Swtchn);
                     return true;
                 }
                 KeyCode::F3 => {
                     // LOAD — open load menu directly
                     self.active = true;
                     self.open_load_menu(game);
+                    game.start_sound(SfxName::Swtchn);
                     return true;
                 }
                 KeyCode::F6 => {
@@ -1266,6 +1264,7 @@ impl SubsystemTrait for GameMenu {
                         };
                         game.save_game(format!("slot{slot}"), desc);
                     }
+                    game.start_sound(SfxName::Swtchn);
                     return true;
                 }
                 KeyCode::F9 => {
@@ -1273,6 +1272,7 @@ impl SubsystemTrait for GameMenu {
                     if self.quicksave_slot >= 0 {
                         let slot = self.quicksave_slot as usize;
                         game.load_game(format!("slot{slot}"));
+                        game.start_sound(SfxName::Swtchn);
                     } else {
                         game.start_sound(SfxName::Oof);
                     }
@@ -1284,6 +1284,7 @@ impl SubsystemTrait for GameMenu {
                 }
                 KeyCode::Escape => {
                     self.enter_menu(game);
+                    game.start_sound(SfxName::Swtchn);
                     return true;
                 }
                 _ => {}
@@ -1413,10 +1414,6 @@ impl SubsystemTrait for GameMenu {
         }
         self.dim_background = game.config_value(ConfigKey::MenuDim) != 0;
         self.active
-    }
-
-    fn get_palette(&self) -> &WadPalette {
-        &self.palette
     }
 
     fn draw(&mut self, buffer: &mut impl DrawBuffer) {

@@ -5,7 +5,7 @@ use level::{LineDefFlags, Segment};
 use log::warn;
 use math::{ANG90, ANG180, ANGLETOFINESHIFT, Angle, Bam, FixedT, fine_tan};
 use pic_data::{FlatPic, PicData};
-use render_common::{DrawBuffer, RenderView};
+use render_common::{RenderView, SceneTarget};
 use std::ptr::NonNull;
 
 use crate::utilities::{inner_to_i32, scale_from_view_angle};
@@ -215,7 +215,7 @@ impl SegRender {
         view: &RenderView,
         rdata: &mut RenderData,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         #[cfg(feature = "hprof")]
         profile!("store_wall_range");
@@ -560,7 +560,7 @@ impl SegRender {
         view: &RenderView,
         rdata: &mut RenderData,
         pic_data: &PicData,
-        rend: &mut impl DrawBuffer,
+        rend: &mut impl SceneTarget,
     ) {
         #[cfg(feature = "hprof")]
         profile!("render_seg_loop");
@@ -797,7 +797,7 @@ impl SegRender {
         mut y_end: i32,
         sky: bool,
         pic_data: &PicData,
-        pixels: &mut impl DrawBuffer,
+        pixels: &mut impl SceneTarget,
     ) {
         #[cfg(feature = "hprof")]
         profile!("draw_wall_column");
@@ -817,8 +817,6 @@ impl SegRender {
         } else {
             pic_data.colourmap(0)
         };
-        let idx = pixels.index_mut();
-
         for _ in y_start..=y_end {
             let mut select = (frac.to_i32() as usize) & 127;
             if sky && self.sky_doubled {
@@ -829,9 +827,8 @@ impl SegRender {
             }
             let tc = texture_column[select];
             if (tc as usize) < colourmap.len() {
-                unsafe {
-                    *idx.get_unchecked_mut(pos) = *colourmap.get_unchecked(tc as usize) as u8;
-                }
+                let lit = unsafe { *colourmap.get_unchecked(tc as usize) } as u16;
+                pixels.scene_store(pos, lit);
             }
             frac += self.dc_iscale;
             pos += pitch;
@@ -859,7 +856,7 @@ impl SegRender {
         y_start: usize,
         mut y_end: usize,
         pic_data: &PicData,
-        pixels: &mut impl DrawBuffer,
+        pixels: &mut impl SceneTarget,
     ) {
         #[cfg(feature = "hprof")]
         profile!("draw_flat_column");
@@ -930,7 +927,6 @@ impl SegRender {
                 let mut xfrac = x0;
                 let mut yfrac = y0;
 
-                let buf = pixels.index_mut();
                 for j in 0..FLAT_INTERP_INTERVAL {
                     let diminished_light = plane_height * yslopes[i + j];
                     let colourmap = pic_data.flat_light_colourmap(
@@ -941,17 +937,15 @@ impl SegRender {
                     let x_step = (xfrac.doom_abs().to_i32() as usize) & tex_len;
                     let y_step = (yfrac.doom_abs().to_i32() as usize) & tex_len;
 
-                    unsafe {
-                        let tc = texture.data[y_step * tex_w + x_step];
-                        *buf.get_unchecked_mut(pos) = *colourmap.get_unchecked(tc as usize) as u8;
-                    }
+                    let tc = texture.data[y_step * tex_w + x_step];
+                    let lit = unsafe { *colourmap.get_unchecked(tc as usize) } as u16;
+                    pixels.scene_store(pos, lit);
                     pos += pitch;
                     xfrac += dx;
                     yfrac += dy;
                 }
                 i += FLAT_INTERP_INTERVAL;
             } else {
-                let buf = pixels.index_mut();
                 // Tail: fewer than N pixels, compute each exactly
                 for j in 0..remaining {
                     let (xfrac, yfrac) = sample_coords(
@@ -972,10 +966,9 @@ impl SegRender {
                     let x_step = (xfrac.doom_abs().to_i32() as usize) & tex_len;
                     let y_step = (yfrac.doom_abs().to_i32() as usize) & tex_len;
 
-                    unsafe {
-                        let tc = texture.data[y_step * tex_w + x_step];
-                        *buf.get_unchecked_mut(pos) = *colourmap.get_unchecked(tc as usize) as u8;
-                    }
+                    let tc = texture.data[y_step * tex_w + x_step];
+                    let lit = unsafe { *colourmap.get_unchecked(tc as usize) } as u16;
+                    pixels.scene_store(pos, lit);
                     pos += pitch;
                 }
                 i += remaining;
@@ -984,7 +977,7 @@ impl SegRender {
     }
 
     #[cfg(feature = "debug_seg_clip")]
-    pub(crate) fn draw_debug_clipping(&self, rdata: &RenderData, pixels: &mut impl DrawBuffer) {
+    pub(crate) fn draw_debug_clipping(&self, rdata: &RenderData, pixels: &mut impl SceneTarget) {
         // Draw ceiling clip line in red
         for x in 0..pixels.size().width_usize() {
             let ceiling_y = rdata.portal_clip.ceilingclip[x].to_i32() as usize;

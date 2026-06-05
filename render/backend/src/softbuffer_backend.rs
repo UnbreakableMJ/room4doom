@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "hprof")]
 use coarse_prof::profile;
+use pic_data::{ByteOrder, PixelFmt};
 use softbuffer::{Context, Pixel, Surface};
 use winit::window::{Fullscreen, Window};
 
@@ -49,7 +50,20 @@ impl SoftbufferDisplay {
     /// Acquire the display surface (sized to the buffer; the compositor scales
     /// to the window), hand it to `body` as a `0xFFRRGGBB` slice with its row
     /// pitch in u32 elements (IOSurface rows may be padded), then present.
-    pub(crate) fn render_frame(&mut self, w: u32, h: u32, body: impl FnOnce(&mut [u32], usize)) {
+    ///
+    /// softbuffer is u32-only: `P` must be `u32` (asserted). The generic param
+    /// exists so the backend slots into [`DisplayBackend::render_frame`].
+    pub(crate) fn render_frame<P: PixelFmt>(
+        &mut self,
+        w: u32,
+        h: u32,
+        body: impl FnOnce(&mut [P], usize),
+    ) {
+        assert_eq!(
+            size_of::<P>(),
+            size_of::<u32>(),
+            "softbuffer is u32-only; Rgb565 must fall back to Rgb888"
+        );
         #[cfg(feature = "hprof")]
         profile!("softbuffer_frame");
         self.surface
@@ -65,7 +79,12 @@ impl SoftbufferDisplay {
             .expect("failed to get softbuffer buffer");
 
         let stride_px = sb.byte_stride().get() as usize / size_of::<Pixel>();
-        body(pixels_as_u32_mut(sb.pixels()), stride_px);
+        let u32_surface = pixels_as_u32_mut(sb.pixels());
+        // SAFETY: P == u32 (asserted above); same layout, length preserved.
+        let surface: &mut [P] = unsafe {
+            std::slice::from_raw_parts_mut(u32_surface.as_mut_ptr().cast::<P>(), u32_surface.len())
+        };
+        body(surface, stride_px);
 
         {
             #[cfg(feature = "hprof")]
@@ -78,6 +97,11 @@ impl SoftbufferDisplay {
     pub fn window_size(&self) -> (u32, u32) {
         let size = self.window.inner_size();
         (size.width, size.height)
+    }
+
+    /// softbuffer presents the u32 buffer as `0xAARRGGBB` (ARGB8888).
+    pub(crate) const fn byte_order() -> ByteOrder {
+        ByteOrder::Argb
     }
 
     pub(crate) fn set_fullscreen(&self, mode: u8) {

@@ -149,6 +149,101 @@ impl From<RenderType> for render_backend::RenderType {
     }
 }
 
+/// Scene pixel format. `Indexed` is the classic 8-bit index plane + resolve;
+/// `Rgb888`/`Rgb565` map the palette and write final pixels (no resolve pass).
+#[derive(Debug, Default, PartialEq, PartialOrd, Clone, Copy, DeRon, SerRon)]
+pub enum PixelMode {
+    #[default]
+    Indexed,
+    Rgb888,
+    Rgb565,
+}
+
+impl FromStr for PixelMode {
+    type Err = IoError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "u8" | "indexed" | "index" => Ok(Self::Indexed),
+            "888" | "rgb888" | "u32" => Ok(Self::Rgb888),
+            "565" | "rgb565" | "u16" => Ok(Self::Rgb565),
+            _ => Err(IoError::new(ErrorKind::Unsupported, "Invalid pixel mode")),
+        }
+    }
+}
+
+impl From<PixelMode> for render_backend::PixelMode {
+    fn from(val: PixelMode) -> Self {
+        match val {
+            PixelMode::Indexed => Self::Indexed,
+            PixelMode::Rgb888 => Self::Rgb888,
+            PixelMode::Rgb565 => Self::Rgb565,
+        }
+    }
+}
+
+/// Damage/bonus/radsuit tint style. `Vanilla` = discrete PLAYPAL steps;
+/// `Smooth` = continuous Quake-style cshift blend.
+#[derive(Debug, Default, PartialEq, PartialOrd, Clone, Copy, DeRon, SerRon)]
+pub enum PaletteFade {
+    #[default]
+    Vanilla,
+    Smooth,
+}
+
+impl FromStr for PaletteFade {
+    type Err = IoError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "vanilla" => Ok(Self::Vanilla),
+            "smooth" => Ok(Self::Smooth),
+            _ => Err(IoError::new(ErrorKind::Unsupported, "Invalid palette fade")),
+        }
+    }
+}
+
+impl From<PaletteFade> for pic_data::PaletteFade {
+    fn from(val: PaletteFade) -> Self {
+        match val {
+            PaletteFade::Vanilla => Self::Vanilla,
+            PaletteFade::Smooth => Self::Smooth,
+        }
+    }
+}
+
+/// A single post-process effect (wgpu backend). Chained in order.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, DeRon, SerRon)]
+pub enum PostEffect {
+    Stretch,
+    Crt,
+}
+
+impl FromStr for PostEffect {
+    type Err = IoError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "stretch" => Ok(Self::Stretch),
+            "crt" => Ok(Self::Crt),
+            _ => Err(IoError::new(ErrorKind::Unsupported, "Invalid post effect")),
+        }
+    }
+}
+
+/// Parse a comma-separated post chain (e.g. `"crt"`, `"stretch,crt"`). `"none"`
+/// or empty yields an empty chain (backend defaults to nearest-neighbour
+/// stretch). Unknown names are an error.
+pub fn parse_post_chain(s: &str) -> Result<Vec<PostEffect>, IoError> {
+    let s = s.trim();
+    if s.is_empty() || s.eq_ignore_ascii_case("none") {
+        return Ok(Vec::new());
+    }
+    s.split(',')
+        .map(|p| p.trim().parse::<PostEffect>())
+        .collect()
+}
+
 /// Window display mode.
 #[derive(Debug, Default, Clone, Copy, PartialEq, DeRon, SerRon)]
 pub enum WindowMode {

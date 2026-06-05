@@ -1,5 +1,5 @@
 use pic_data::VoxelColumn;
-use render_common::FUZZ_TABLE;
+use render_common::{FUZZ_TABLE, SceneTarget};
 
 use super::Rasterizer;
 
@@ -127,7 +127,7 @@ impl Rasterizer {
         view_proj: &glam::Mat4,
         camera_pos: glam::Vec3,
         colourmaps: &[&[usize]],
-        buffer: &mut [u8],
+        buffer: &mut impl SceneTarget,
         pitch: usize,
     ) {
         let Some(s) = self.voxel_setup(
@@ -203,7 +203,9 @@ impl Rasterizer {
 
                         let band = (avg_iw * super::LIGHT_SCALE).min(47.0) as usize;
                         let colourmap = colourmaps[band];
-                        let pixel_color = colourmap[color as usize] as u8;
+                        let pixel_color = colourmap[color as usize] as u16;
+                        // avoid per-pixel palette lookup; quad is flat-shaded
+                        let texel = buffer.texel(pixel_color);
 
                         if min_y == max_y {
                             let min_x = min_x as i32;
@@ -214,7 +216,7 @@ impl Rasterizer {
                                 if avg_iw
                                     > self.depth_buffer.peek_depth_unchecked(ux, min_y as usize)
                                 {
-                                    buffer[row + ux] = pixel_color;
+                                    buffer.put(row + ux, texel);
                                     self.depth_buffer.set_depth_update_hiz(
                                         ux,
                                         min_y as usize,
@@ -261,7 +263,7 @@ impl Rasterizer {
                                     if avg_iw
                                         > self.depth_buffer.peek_depth_unchecked(ux, py as usize)
                                     {
-                                        buffer[row + ux] = pixel_color;
+                                        buffer.put(row + ux, texel);
                                         self.depth_buffer.set_depth_update_hiz(
                                             ux,
                                             py as usize,
@@ -291,8 +293,8 @@ impl Rasterizer {
         tex_height: u16,
         view_proj: &glam::Mat4,
         camera_pos: glam::Vec3,
-        colourmap6: &[usize],
-        buffer: &mut [u8],
+        colourmap6: &[usize; 256],
+        buffer: &mut impl SceneTarget,
         pitch: usize,
         fuzz_pos: &mut usize,
     ) {
@@ -379,8 +381,7 @@ impl Rasterizer {
                                 {
                                     let offset = FUZZ_TABLE[*fuzz_pos % FUZZ_TABLE.len()];
                                     let src_y = (min_y + offset).clamp(0, h_clamp) as usize;
-                                    buffer[row + ux] =
-                                        colourmap6[buffer[src_y * pitch + ux] as usize] as u8;
+                                    buffer.scene_fuzz(row + ux, src_y * pitch + ux, colourmap6);
                                     *fuzz_pos += 1;
                                     self.depth_buffer.set_depth_update_hiz(
                                         ux,
@@ -430,8 +431,7 @@ impl Rasterizer {
                                     {
                                         let offset = FUZZ_TABLE[*fuzz_pos % FUZZ_TABLE.len()];
                                         let src_y = (py + offset).clamp(0, h_clamp) as usize;
-                                        buffer[row + ux] =
-                                            colourmap6[buffer[src_y * pitch + ux] as usize] as u8;
+                                        buffer.scene_fuzz(row + ux, src_y * pitch + ux, colourmap6);
                                         *fuzz_pos += 1;
                                         self.depth_buffer.set_depth_update_hiz(
                                             ux,

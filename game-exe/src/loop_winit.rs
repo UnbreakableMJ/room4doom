@@ -15,7 +15,7 @@ use gamestate_traits::{ConfigTraits as _, SubsystemTrait as _};
 use input::InputState;
 use log::{info, warn};
 use render_backend::{DisplayBackend, RenderTarget};
-use render_common::{GameRenderer as _, STBAR_HEIGHT};
+use render_common::STBAR_HEIGHT;
 use software3d::DebugDrawOptions;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId, ElementState, WindowEvent};
@@ -29,13 +29,30 @@ use crate::d_main::{d_display, input_responder, load_voxels, run_game_tic, updat
 use crate::timestep::TimeStep;
 
 /// Create the appropriate display backend for the active feature.
-#[cfg(feature = "display-pixels")]
-fn new_display_backend(window: Arc<Window>, vsync: bool) -> DisplayBackend {
-    DisplayBackend::new_pixels(window, vsync)
+#[cfg(feature = "display-wgpu")]
+fn new_display_backend(
+    window: Arc<Window>,
+    vsync: bool,
+    post: &[crate::config::PostEffect],
+) -> DisplayBackend {
+    use crate::config::PostEffect as Cfg;
+    use render_backend::PostEffect;
+    let chain = post
+        .iter()
+        .map(|p| match p {
+            Cfg::Stretch => PostEffect::Stretch,
+            Cfg::Crt => PostEffect::Crt,
+        })
+        .collect();
+    DisplayBackend::new_wgpu(window, vsync, chain)
 }
 
-#[cfg(all(feature = "display-softbuffer", not(feature = "display-pixels")))]
-fn new_display_backend(window: Arc<Window>, _vsync: bool) -> DisplayBackend {
+#[cfg(all(feature = "display-softbuffer", not(feature = "display-wgpu")))]
+fn new_display_backend(
+    window: Arc<Window>,
+    _vsync: bool,
+    _post: &[crate::config::PostEffect],
+) -> DisplayBackend {
     DisplayBackend::new_softbuffer(window)
 }
 
@@ -45,7 +62,8 @@ pub struct DoomApp {
     input: InputState,
     cheats: Cheats,
     timestep: TimeStep,
-    render_backend: Option<RenderTarget>,
+    // winit drives softbuffer/pixels, both u32-only. (565 is sdl2-only.)
+    render_backend: Option<RenderTarget<u32>>,
     menu: Option<GameMenu>,
     machines: GameSubsystem<Intermission, Statusbar, Messages, Finale>,
     options: CLIOptions,
@@ -57,6 +75,8 @@ pub struct DoomApp {
     next_frame: Instant,
     voxel_manager: Option<Arc<pic_data::VoxelManager>>,
     user_config: crate::config::UserConfig,
+    /// Parsed post-process chain (wgpu backend); empty = stretch only.
+    post: Vec<crate::config::PostEffect>,
 }
 
 impl DoomApp {
@@ -80,6 +100,13 @@ impl DoomApp {
             game.game_type.mode,
             game.pic_data.pwad_sprite_overrides(),
         );
+        let post = match options.post.as_deref() {
+            Some(s) => crate::config::parse_post_chain(s).unwrap_or_else(|e| {
+                warn!("ignoring --post: {e}");
+                Vec::new()
+            }),
+            None => Vec::new(),
+        };
         Self {
             game,
             input,
@@ -95,6 +122,7 @@ impl DoomApp {
             next_frame: Instant::now(),
             voxel_manager,
             user_config,
+            post,
         }
     }
 }
@@ -203,10 +231,10 @@ impl ApplicationHandler for DoomApp {
             .expect("failed to grab cursor");
 
         let vsync = self.options.vsync.unwrap_or(true);
-        // With the pixels (wgpu) backend, vsync is handled by the GPU present
-        // mode — wgpu blocks in render() until vblank. Adding a winit-level
-        // frame interval on top double-throttles and can cause white frames.
-        let use_winit_interval = vsync && !cfg!(feature = "display-pixels");
+        // With the wgpu backend, vsync is handled by the GPU present mode — wgpu
+        // blocks in render() until vblank. Adding a winit-level frame interval on
+        // top double-throttles and can cause white frames.
+        let use_winit_interval = vsync && !cfg!(feature = "display-wgpu");
         if use_winit_interval {
             let monitor = window
                 .current_monitor()
@@ -231,7 +259,11 @@ impl ApplicationHandler for DoomApp {
             self.frame_interval = None;
         }
 
-        let display = new_display_backend(window.clone(), self.options.vsync.unwrap_or(true));
+        let display = new_display_backend(
+            window.clone(),
+            self.options.vsync.unwrap_or(true),
+            &self.post,
+        );
 
         let mut render_backend = RenderTarget::new(
             self.options.hi_res.unwrap_or(true),
@@ -240,6 +272,7 @@ impl ApplicationHandler for DoomApp {
             display,
             self.options.rendering.unwrap_or_default().into(),
         );
+        render_backend.set_pixel_mode(self.options.pixels.unwrap_or_default().into());
         if self.user_config.hud_size == 1 {
             render_backend.set_statusbar_height(STBAR_HEIGHT);
         }
@@ -323,7 +356,8 @@ impl ApplicationHandler for DoomApp {
             }
             WindowEvent::Resized(_) => {
                 if let Some(window) = &self.window {
-                    let display = new_display_backend(window.clone(), self.user_config.vsync);
+                    let display =
+                        new_display_backend(window.clone(), self.user_config.vsync, &self.post);
                     let prev_state = self.menu.as_ref().map(|m| m.save_state());
                     let mut rt = RenderTarget::new(
                         self.user_config.hi_res,
@@ -332,6 +366,7 @@ impl ApplicationHandler for DoomApp {
                         display,
                         self.user_config.renderer.into(),
                     );
+                    rt.set_pixel_mode(self.options.pixels.unwrap_or_default().into());
                     if self.user_config.hud_size == 1 {
                         rt.set_statusbar_height(STBAR_HEIGHT);
                     }

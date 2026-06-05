@@ -29,7 +29,8 @@ use input::InputState;
 use level::LevelData;
 use log::error;
 use math::{Angle, Bam, FixedT};
-use render_common::{DrawBuffer, Frame, GameRenderer, RenderPspDef, RenderView};
+use render_backend::{FrameCtx, RenderTarget};
+use render_common::{ByteOrder, DrawBuffer, PixelFmt, RenderPspDef, RenderView};
 use sound_common::SoundAction;
 use std::f32::consts::PI;
 use std::path::Path;
@@ -254,7 +255,8 @@ pub(crate) fn update_sound(game: &Game) {
 }
 
 fn page_drawer(game: &Game, draw_buf: &mut impl DrawBuffer) {
-    draw_buf.buf_mut().fill(BLACK);
+    let black = PixelFmt::from_argb(BLACK, ByteOrder::Argb);
+    draw_buf.buf_mut().fill(black);
     let (sx, sy) = fullscreen_scale(draw_buf);
     let x = (draw_buf.size().width_f32() - 320.0 * sx) / 2.0;
     let palette = game.pic_data.wad_palette();
@@ -262,8 +264,8 @@ fn page_drawer(game: &Game, draw_buf: &mut impl DrawBuffer) {
 }
 
 /// D_Display — draw the current frame.
-pub(crate) fn d_display<R: GameRenderer>(
-    render_backend: &mut R,
+pub(crate) fn d_display<P: PixelFmt>(
+    render_backend: &mut RenderTarget<P>,
     menu: &mut impl SubsystemTrait,
     machines: &mut GameSubsystem<
         impl SubsystemTrait,
@@ -290,8 +292,8 @@ pub(crate) fn d_display<R: GameRenderer>(
     let automap_active = false;
 
     // Everything that draws the frame runs inside `with_frame`: the backend
-    // acquires the display surface, the new scene resolves into it, UI draws
-    // onto it, then the closure returns and the backend presents.
+    // acquires the display surface, the scene composes into it (direct pixels or
+    // index+resolve), UI draws on top, then the closure returns and presents.
     let is_wiping = render_backend.is_wiping();
     render_backend.with_frame(|frame| {
         if wipe && !is_wiping {
@@ -370,8 +372,8 @@ pub(crate) fn d_display<R: GameRenderer>(
 /// Draw the old state into the wipe buffer so it can be melted over the new
 /// frame. `Level` resolves the still-present index plane plus HUD; others re-draw
 /// their screen.
-fn capture_old_frame<F: Frame>(
-    frame: &mut F,
+fn capture_old_frame<P: PixelFmt>(
+    frame: &mut FrameCtx<'_, P>,
     game: &Game,
     machines: &mut GameSubsystem<
         impl SubsystemTrait,

@@ -1,12 +1,11 @@
+pub mod scene_target;
 pub mod wipe;
 
-use level::LevelData;
-use math::{Angle, Bam, FixedT, m_random};
-use pic_data::PicData;
+pub use pic_data::{ByteOrder, PalLit, PixelFmt};
 
-// =============================================================================
-// Constants
-// =============================================================================
+use math::{Angle, Bam, FixedT, m_random};
+
+pub use scene_target::PixelTarget;
 
 /// OG Doom's original resolution.
 const OG_WIDTH: f32 = 320.0;
@@ -48,15 +47,6 @@ const BLEED_PEAK_BLEND: usize = 4;
 const BLEED_CENTER_SHORT: f32 = 0.5;
 /// Edge→centre shortening curve, >1 stays tall toward edges (exponent).
 const BLEED_EDGE_POW: f32 = 2.0;
-
-/// Per-pixel scanout effect selecting which PLAYPAL palette resolves a pixel:
-/// `out[i] = palettes_flat[palette_offset(x, y) * 256 + idx[i]]`. 0 = base.
-pub trait ScreenEffect {
-    fn palette_offset(&self, x: usize, y: u16, use_palette: usize) -> usize;
-    fn is_active(&self) -> bool {
-        true
-    }
-}
 
 /// Jagged red columns hanging from the top of the screen as health drops.
 ///
@@ -156,23 +146,22 @@ impl HealthBleed {
     }
 }
 
-impl ScreenEffect for HealthBleed {
+impl HealthBleed {
+    /// Per-pixel scanout palette select: `palettes_flat[offset * 256 + idx]`.
+    /// `use_palette` (0 = base) for pixels below the bleed.
     #[inline(always)]
-    fn palette_offset(&self, x: usize, y: u16, use_palette: usize) -> usize {
+    pub fn palette_offset(&self, x: usize, y: u16, use_palette: usize) -> usize {
         let shown = unsafe { *self.shown.get_unchecked(x) };
         if y >= shown {
             return use_palette;
         }
-        // Count how many precomputed band thresholds this depth exceeds — a
-        // couple of compares, no arithmetic.
         let from_edge = shown - 1 - y;
         let bounds = unsafe { self.bound.get_unchecked(x) };
         let mut band = 0;
 
         while band < BLEED_PAL_COUNT - 1
             && from_edge >=
-        // SAFETY: the `band < BLEED_PAL_COUNT - 1` guard bounds the index into
-        // `bounds: [_; BLEED_PAL_COUNT - 1]`.
+        // SAFETY: the guard bounds the index into `bounds: [_; BLEED_PAL_COUNT - 1]`.
         unsafe { *bounds.get_unchecked(band) }
         {
             band += 1;
@@ -181,7 +170,7 @@ impl ScreenEffect for HealthBleed {
     }
 
     #[inline(always)]
-    fn is_active(&self) -> bool {
+    pub fn is_active(&self) -> bool {
         self.active
     }
 }
@@ -270,193 +259,64 @@ fn smooth_noise(width: usize, amplitude: i32, step: usize) -> Vec<i32> {
         .collect()
 }
 
-// =============================================================================
-// Traits
-// =============================================================================
-
-/// Owns the renderer + display backend. A frame is composed inside
-/// [`GameRenderer::with_frame`], which acquires the display surface, runs the
-/// caller's closure against a [`Frame`], then presents.
-pub trait GameRenderer {
-    /// Query the size things are drawn at, outside a frame (for layout/setup).
-    fn buffer_size(&self) -> &BufferSize;
-
-    /// Whether a wipe transition is in progress.
-    fn is_wiping(&self) -> bool;
-
-    /// Regenerate the bleed's random column pattern (call on new game / level
-    /// load so each level gets a fresh shape).
-    fn reset_health_bleed(&mut self);
-
-    /// Acquire the display surface and compose one frame into it via `body`,
-    /// then present. Everything that draws the frame (scene, wipe, UI) runs
-    /// inside `body` against the [`Frame`].
-    fn with_frame(&mut self, body: impl FnOnce(&mut Self::Frame<'_>));
-
-    /// The per-frame draw context produced by [`Self::with_frame`].
-    type Frame<'a>: Frame
-    where
-        Self: 'a;
-}
-
-/// Per-frame draw operations, valid only inside [`GameRenderer::with_frame`].
-/// The display surface is acquired for the duration; the scene resolves into it
-/// and UI draws onto it directly.
-pub trait Frame {
-    /// Begin a wipe: size + clear the old-frame snapshot buffer. The caller then
-    /// draws the old state into it via [`Self::wipe_buffer`] /
-    /// [`Self::resolve_index_into_wipe`].
-    fn start_wipe(&mut self);
-
-    /// The old-frame wipe buffer as a [`DrawBuffer`], for the caller to draw the
-    /// old state into (`0xAARRGGBB`, width-pitched).
-    fn wipe_buffer(&mut self) -> impl DrawBuffer;
-
-    /// Resolve the current index plane into the wipe buffer — the old `Level`
-    /// view (still present in the index at wipe start).
-    fn resolve_index_into_wipe(&mut self, pic_data: &PicData);
-
-    /// Render the 3D view, filling the 8-bit index plane (the scene is not yet
-    /// resolved to the surface — see [`Self::finish_scene`]).
-    fn render_player_view(
-        &mut self,
-        view: &RenderView,
-        level_data: &LevelData,
-        pic_data: &mut PicData,
-    );
-
-    /// Melt the old-frame wipe buffer one step over the display surface. Returns
-    /// true when complete. Called after the new frame is composited.
-    fn do_wipe(&mut self) -> bool;
-
-    /// Resolve the index plane (+ health bleed) into the display surface, then
-    /// draw any debug overlays. No-op resolve when the scene wrote the surface
-    /// directly (debug colour modes).
-    fn finish_scene(&mut self, pic_data: &PicData);
-
-    /// The surface as a [`DrawBuffer`] for UI subsystems to draw onto.
-    fn draw_buffer(&mut self) -> &mut impl DrawBuffer;
-
-    fn size(&self) -> &BufferSize;
-
-    /// Update the health bleed effect for this frame's resolve. Pass 100 to clear.
-    fn set_health_bleed(&mut self, health: i32);
-}
-
-#[cfg(test)]
-mod bleed_tests {
-    use super::{BLEED_PAL_COUNT, BLEED_PAL_START, HealthBleed, ScreenEffect as _};
-
-    const W: usize = 64;
-    const H: usize = 120;
-
-    /// Lit pixel count over the whole frame.
-    fn lit(v: &HealthBleed) -> usize {
-        (0..v.height)
-            .flat_map(|y| (0..v.width).map(move |x| (x, y as u16)))
-            .filter(|&(x, y)| v.palette_offset(x, y, 0) != 0)
-            .count()
-    }
-
-    /// Full health: inactive, no pixel tinted (columns zero-length).
-    #[test]
-    fn full_health_inactive() {
-        let mut v = HealthBleed::default();
-        v.update(100, W, H);
-        assert!(!v.is_active());
-        assert_eq!(lit(&v), 0);
-    }
-
-    /// Damage hangs columns from the top: row 0 of a column tints, the bottom
-    /// stays clear.
-    #[test]
-    fn damage_tints_top_not_bottom() {
-        let mut v = HealthBleed::default();
-        v.update(20, W, H);
-        assert!(v.is_active());
-        let top = v.palette_offset(0, 0, 0);
-        assert!(top >= BLEED_PAL_START, "top of column tints");
-        assert!(top < BLEED_PAL_START + BLEED_PAL_COUNT, "in red range");
-        assert_eq!(
-            v.palette_offset(0, H as u16 - 1, 0),
-            0,
-            "bottom stays clear"
-        );
-    }
-
-    /// Lower health grows the columns (more lit pixels).
-    #[test]
-    fn lower_health_grows_columns() {
-        let mut v = HealthBleed::default();
-        v.update(80, W, H);
-        let mid = lit(&v);
-        v.update(20, W, H);
-        let low = lit(&v);
-        assert!(low > mid, "lower health => longer columns");
-    }
-
-    /// On average the palette lightens top → bottom (leading edge lightest).
-    /// Per-boundary jitter can break the order in a single column, so test the
-    /// mean palette of the top vs bottom row across all columns.
-    #[test]
-    fn column_lightens_downward() {
-        let mut v = HealthBleed::default();
-        v.update(0, W, H);
-        let row_mean = |y: u16| -> f32 {
-            let sum: usize = (0..v.width).map(|x| v.palette_offset(x, y, 0)).sum();
-            sum as f32 / v.width as f32
-        };
-        assert!(
-            row_mean(0) > row_mean(H as u16 - 1),
-            "top darker than bottom on average"
-        );
-    }
-
-    /// Restoring to 100 clears the effect.
-    #[test]
-    fn clears_when_restored() {
-        let mut v = HealthBleed::default();
-        v.update(10, W, H);
-        assert!(v.is_active());
-        v.update(100, W, H);
-        assert!(!v.is_active());
-        assert_eq!(lit(&v), 0);
-    }
-}
-
-/// A u32 draw target plus the 8-bit scene index plane behind it.
+/// A draw surface of final pixels of type [`Self::Pixel`] (`u16` 565 / `u32`
+/// ARGB).
 ///
-/// The renderer fills the index plane (`set_index`/`index_mut`) then `resolve`s
-/// it to u32; UI draws u32 directly (`set_pixel`/`buf_mut`). For the real
-/// backend the u32 side is the display surface (possibly strided — always use
-/// `pitch`).
+/// UI and debug overlays write `set_pixel`/`buf_mut`; the index path
+/// additionally `resolve`s its 8-bit plane into this surface. The display
+/// surface may be strided — always step by `pitch`.
 pub trait DrawBuffer {
-    fn size(&self) -> &BufferSize;
-    /// Write a `0xAARRGGBB` pixel to the resolved display surface (UI/overlays).
-    fn set_pixel(&mut self, x: usize, y: usize, colour: u32);
-    /// Read a `0xAARRGGBB` pixel from the resolved display surface.
-    fn read_pixel(&self, x: usize, y: usize) -> u32;
-    /// Flat position of `(x, y)` in the 8-bit index plane (`y * pitch() + x`).
-    /// Pairs with [`Self::index_mut`] and [`Self::pitch`] for column stepping.
-    fn get_buf_index(&self, x: usize, y: usize) -> usize;
-    /// Row stride of the index plane in elements (the buffer width; the display
-    /// surface may be padded wider, but that padding is hidden behind the pixel
-    /// accessors).
-    fn pitch(&self) -> usize;
-    fn buf_mut(&mut self) -> &mut [u32];
+    /// The surface pixel format (`u16` RGB565, `u32` `0xAARRGGBB`).
+    type Pixel: PixelFmt;
 
-    /// Write a palette index to the 8-bit scene plane (the hot geometry path).
-    fn set_index(&mut self, x: usize, y: usize, idx: u8);
-    /// The 8-bit palette-index plane, for inner-loop `idx[pos] = colourmap[src]`.
-    fn index_mut(&mut self) -> &mut [u8];
-    /// Resolve the index plane to u32. No effect: `out[i] = palette[idx[i]]`.
-    /// Bleed active: per-pixel select into `palettes_flat` (`PALLETE_LEN*256`).
-    fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32], use_palette: usize);
+    fn size(&self) -> &BufferSize;
+    /// Row stride in elements (the buffer width; the display surface may be
+    /// padded wider, hidden behind the pixel accessors).
+    fn pitch(&self) -> usize;
+    /// Flat position of `(x, y)` (`y * pitch() + x`).
+    fn get_buf_index(&self, x: usize, y: usize) -> usize;
+    /// Write a `0xAARRGGBB` colour (UI/overlays), converted to `Self::Pixel`.
+    fn set_pixel(&mut self, x: usize, y: usize, colour: u32);
+    /// The whole surface, for bulk fills/clears.
+    fn buf_mut(&mut self) -> &mut [Self::Pixel];
+    /// Resolve the index plane into the surface via a `PalLit<Self::Pixel>`.
+    /// No bleed: `out[i] = pal_lit.block(use_palette)[idx[i]]`. Bleed active:
+    /// per-pixel `pal_lit.block(palette_offset)[idx[i]]`.
+    fn resolve(&mut self, pal_lit: &PalLit<Self::Pixel>, use_palette: usize);
 }
 
-// =============================================================================
-// Types
-// =============================================================================
+/// The hot scene-geometry store, generic over the pixel representation.
+///
+/// The index buffer writes 8-bit palette indices (resolved later); a
+/// [`PixelTarget`] writes final pixels via the active palette block (no
+/// resolve). Supertrait `DrawBuffer` covers debug overlays on the same target.
+pub trait SceneTarget: DrawBuffer {
+    /// What a lit index resolves to for this target: the `u8` index itself, or
+    /// the final pixel. Lets a flat-shaded run (voxels) resolve once via
+    /// [`Self::texel`] then store many pixels via [`Self::put`].
+    type Texel: Copy;
+
+    /// Resolve lit palette index `lit` (0..=255) to a storable [`Self::Texel`].
+    /// Index buffer: `lit as u8`. Pixel buffer: `block[lit]`.
+    fn texel(&self, lit: u16) -> Self::Texel;
+
+    /// Store a resolved texel at flat `pos` (`y * pitch() + x`).
+    fn put(&mut self, pos: usize, texel: Self::Texel);
+
+    /// Store lit palette index `lit` (0..=255; caller skips `u16::MAX`) at flat
+    /// `pos`. Per-pixel resolve — for paths where `lit` varies per pixel
+    /// (walls/flats/sprites). Flat-shaded runs should hoist via `texel`/`put`.
+    #[inline(always)]
+    fn scene_store(&mut self, pos: usize, lit: u16) {
+        let t = self.texel(lit);
+        self.put(pos, t);
+    }
+
+    /// Fuzz RMW: darken `src_pos`'s pixel into `dst_pos`. Index buffer:
+    /// `idx[dst] = colourmap6[idx[src]]`. Pixel buffer: RGB-halve the final
+    /// pixel (`colourmap6` ignored).
+    fn scene_fuzz(&mut self, dst_pos: usize, src_pos: usize, colourmap6: &[usize; 256]);
+}
 
 /// Pre-resolved weapon sprite for rendering. Extracted from gameplay's PspDef
 /// so render-common doesn't depend on StateData/SpriteNum.
@@ -503,7 +363,7 @@ pub struct RenderView {
     pub extralight: usize,
     /// Whether the player mobj has the Shadow flag (partial invisibility).
     pub is_shadow: bool,
-    /// Pre-resolved subsector index into `LevelData::subsectors()`.
+    /// Pre-resolved subsector index into the level's subsectors.
     pub subsector_id: usize,
     /// Weapon overlay sprites.
     pub psprites: [RenderPspDef; 2],
@@ -603,10 +463,6 @@ impl BufferSize {
     }
 }
 
-// =============================================================================
-// Projection
-// =============================================================================
-
 /// Derive FOV and focal length for a given buffer size.
 ///
 /// Keeps the view proportional to OG Doom's 320x200 at the given base hfov
@@ -619,4 +475,85 @@ pub fn og_projection(base_hfov: f32, buf_width: f32, buf_height: f32) -> (f32, f
     let hfov = 2.0 * ((buf_width / 2.0) / focal_length).atan();
     let vfov = 2.0 * ((buf_height / 2.0) / focal_length).atan();
     (hfov, vfov, focal_length)
+}
+
+#[cfg(test)]
+mod bleed_tests {
+    use super::{BLEED_PAL_COUNT, BLEED_PAL_START, HealthBleed};
+
+    const W: usize = 64;
+    const H: usize = 120;
+
+    /// Lit pixel count over the whole frame.
+    fn lit(v: &HealthBleed) -> usize {
+        (0..v.height)
+            .flat_map(|y| (0..v.width).map(move |x| (x, y as u16)))
+            .filter(|&(x, y)| v.palette_offset(x, y, 0) != 0)
+            .count()
+    }
+
+    /// Full health: inactive, no pixel tinted (columns zero-length).
+    #[test]
+    fn full_health_inactive() {
+        let mut v = HealthBleed::default();
+        v.update(100, W, H);
+        assert!(!v.is_active());
+        assert_eq!(lit(&v), 0);
+    }
+
+    /// Damage hangs columns from the top: row 0 of a column tints, the bottom
+    /// stays clear.
+    #[test]
+    fn damage_tints_top_not_bottom() {
+        let mut v = HealthBleed::default();
+        v.update(20, W, H);
+        assert!(v.is_active());
+        let top = v.palette_offset(0, 0, 0);
+        assert!(top >= BLEED_PAL_START, "top of column tints");
+        assert!(top < BLEED_PAL_START + BLEED_PAL_COUNT, "in red range");
+        assert_eq!(
+            v.palette_offset(0, H as u16 - 1, 0),
+            0,
+            "bottom stays clear"
+        );
+    }
+
+    /// Lower health grows the columns (more lit pixels).
+    #[test]
+    fn lower_health_grows_columns() {
+        let mut v = HealthBleed::default();
+        v.update(80, W, H);
+        let mid = lit(&v);
+        v.update(20, W, H);
+        let low = lit(&v);
+        assert!(low > mid, "lower health => longer columns");
+    }
+
+    /// On average the palette lightens top → bottom (leading edge lightest).
+    /// Per-boundary jitter can break the order in a single column, so test the
+    /// mean palette of the top vs bottom row across all columns.
+    #[test]
+    fn column_lightens_downward() {
+        let mut v = HealthBleed::default();
+        v.update(0, W, H);
+        let row_mean = |y: u16| -> f32 {
+            let sum: usize = (0..v.width).map(|x| v.palette_offset(x, y, 0)).sum();
+            sum as f32 / v.width as f32
+        };
+        assert!(
+            row_mean(0) > row_mean(H as u16 - 1),
+            "top darker than bottom on average"
+        );
+    }
+
+    /// Restoring to 100 clears the effect.
+    #[test]
+    fn clears_when_restored() {
+        let mut v = HealthBleed::default();
+        v.update(10, W, H);
+        assert!(v.is_active());
+        v.update(100, W, H);
+        assert!(!v.is_active());
+        assert_eq!(lit(&v), 0);
+    }
 }

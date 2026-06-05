@@ -2,8 +2,8 @@ use egui::{ColorImage, TextureHandle, TextureOptions};
 use glam::Vec3;
 use level::LevelData;
 use math::{Angle, Bam, FixedT};
-use pic_data::PicData;
-use render_common::{BufferSize, DrawBuffer, RenderPspDef, RenderView};
+use pic_data::{ByteOrder, PalLit, PicData};
+use render_common::{BufferSize, DrawBuffer, RenderPspDef, RenderView, SceneTarget};
 use software3d::{DebugColourMode, DebugDrawOptions, Software3D};
 use wad::WadData;
 
@@ -68,14 +68,13 @@ impl FrameBuffer {
 }
 
 impl DrawBuffer for FrameBuffer {
+    type Pixel = u32;
+
     fn size(&self) -> &BufferSize {
         &self.size
     }
     fn set_pixel(&mut self, x: usize, y: usize, colour: u32) {
         self.data[y * self.w + x] = colour;
-    }
-    fn read_pixel(&self, x: usize, y: usize) -> u32 {
-        self.data[y * self.w + x]
     }
     fn get_buf_index(&self, x: usize, y: usize) -> usize {
         y * self.w + x
@@ -86,16 +85,24 @@ impl DrawBuffer for FrameBuffer {
     fn buf_mut(&mut self) -> &mut [u32] {
         &mut self.data
     }
-    fn set_index(&mut self, x: usize, y: usize, idx: u8) {
-        self.index[y * self.w + x] = idx;
-    }
-    fn index_mut(&mut self) -> &mut [u8] {
-        &mut self.index
-    }
-    fn resolve(&mut self, palette: &[u32], _palettes_flat: &[u32], _use_palette: usize) {
+    fn resolve(&mut self, pal_lit: &PalLit<u32>, use_palette: usize) {
+        let block = pal_lit.block(use_palette);
         for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
-            *out = palette[idx as usize];
+            *out = block[idx as usize];
         }
+    }
+}
+
+impl SceneTarget for FrameBuffer {
+    type Texel = u8;
+    fn texel(&self, lit: u16) -> u8 {
+        lit as u8
+    }
+    fn put(&mut self, pos: usize, texel: u8) {
+        self.index[pos] = texel;
+    }
+    fn scene_fuzz(&mut self, dst_pos: usize, src_pos: usize, colourmap6: &[usize; 256]) {
+        self.index[dst_pos] = colourmap6[self.index[src_pos] as usize] as u8;
     }
 }
 
@@ -163,31 +170,38 @@ impl Renderer3D {
     fn render_to_buffer(&mut self, level: &LevelData, cam: &Camera3D) {
         let view = render_view(cam);
         self.fb.data.fill(CLEAR_COLOUR);
+        // Clear the index plane too: textured mode resolves it to u32, and
+        // pixels the BSP traverse doesn't cover (void) would otherwise show a
+        // stale index from the previous frame.
+        self.fb.index.fill(0);
         // draw_view fills the index plane (or the surface for debug colour
         // modes); resolve + overlays now run here, not inside draw_view.
         let needs_resolve = self
             .sw
             .draw_view(&view, level, &mut self.pics, &mut self.fb);
         if needs_resolve {
-            self.fb.resolve(
-                self.pics.palette(),
-                self.pics.palettes_flat(),
-                self.pics.use_palette(),
-            );
+            let pal_lit: PalLit<u32> = self.pics.build_pal_lit(ByteOrder::Argb);
+            self.fb.resolve(&pal_lit, self.pics.use_palette());
         }
         self.sw.draw_debug_overlays(&mut self.fb);
     }
 }
 
 fn debug_opts(mode: Render3DMode) -> DebugDrawOptions {
-    let mut opts = DebugDrawOptions {
-        clear_colour: Some(CLEAR_COLOUR),
-        ..Default::default()
-    };
+    let mut opts = DebugDrawOptions::default();
     match mode {
+        // Textured rendering fills the 8-bit index plane and needs a resolve
+        // pass, signalled by `draw_view` returning true when clear_colour is
+        // None. The debug modes write u32 directly, so they keep a clear colour.
         Render3DMode::Textured => {}
-        Render3DMode::SolidSectors => opts.colour_mode = DebugColourMode::SectorId,
-        Render3DMode::Wireframe => opts.wireframe = true,
+        Render3DMode::SolidSectors => {
+            opts.clear_colour = Some(CLEAR_COLOUR);
+            opts.colour_mode = DebugColourMode::SectorId;
+        }
+        Render3DMode::Wireframe => {
+            opts.clear_colour = Some(CLEAR_COLOUR);
+            opts.wireframe = true;
+        }
     }
     opts
 }
@@ -253,6 +267,16 @@ mod tests {
         ] {
             let mut r = Renderer3D::new(&wad, mode, 320, 240);
             r.render_to_buffer(&level, &cam);
+            // Textured mode must resolve the index plane to varied colours; a
+            // near-uniform surface means the resolve was skipped (blank view).
+            if mode == Render3DMode::Textured {
+                let distinct: std::collections::HashSet<u32> = r.fb.data.iter().copied().collect();
+                assert!(
+                    distinct.len() > 10,
+                    "textured view should resolve to many colours, got {}",
+                    distinct.len()
+                );
+            }
         }
     }
 }
