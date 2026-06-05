@@ -92,13 +92,16 @@ impl Software25D {
     /// - Runs BSP traversal to emit walls and collect sprites
     /// - Draws masked/translucent elements (sprites, mid-textures)
     ///   back-to-front
+    /// Render the player view into `rend`'s index plane. Returns whether the
+    /// caller must resolve the index plane to the surface — always `true` for
+    /// the 2.5D renderer (it has no u32-direct debug colour modes).
     pub fn draw_view(
         &mut self,
         view: &RenderView,
         level_data: &LevelData,
         pic_data: &mut PicData,
         rend: &mut impl DrawBuffer,
-    ) {
+    ) -> bool {
         // TODO: pull duplicate functionality out to a function
         self.clear(FixedT::from(rend.size().width()));
         let mut count = 0;
@@ -138,9 +141,7 @@ impl Software25D {
         self.draw_masked(view, pic_data, rend);
         // TODO: netupdate again
 
-        // Resolve the 8-bit scene index plane to the u32 buffer using the
-        // current scanout palette (damage/bonus/rad tint applied here).
-        rend.resolve(pic_data.palette(), pic_data.palettes_flat());
+        true
     }
 
     pub fn new(fov: f32, width: f32, height: f32, hi_res: bool, debug: bool) -> Software25D {

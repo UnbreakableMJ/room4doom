@@ -92,12 +92,11 @@ impl DrawBuffer for FrameBuffer {
     fn index_mut(&mut self) -> &mut [u8] {
         &mut self.index
     }
-    fn resolve(&mut self, palette: &[u32], _palettes_flat: &[u32]) {
+    fn resolve(&mut self, palette: &[u32], _palettes_flat: &[u32], _use_palette: usize) {
         for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
             *out = palette[idx as usize];
         }
     }
-    fn debug_flip_and_present(&mut self) {}
 }
 
 pub struct Renderer3D {
@@ -164,8 +163,19 @@ impl Renderer3D {
     fn render_to_buffer(&mut self, level: &LevelData, cam: &Camera3D) {
         let view = render_view(cam);
         self.fb.data.fill(CLEAR_COLOUR);
-        self.sw
+        // draw_view fills the index plane (or the surface for debug colour
+        // modes); resolve + overlays now run here, not inside draw_view.
+        let needs_resolve = self
+            .sw
             .draw_view(&view, level, &mut self.pics, &mut self.fb);
+        if needs_resolve {
+            self.fb.resolve(
+                self.pics.palette(),
+                self.pics.palettes_flat(),
+                self.pics.use_palette(),
+            );
+        }
+        self.sw.draw_debug_overlays(&mut self.fb);
     }
 }
 

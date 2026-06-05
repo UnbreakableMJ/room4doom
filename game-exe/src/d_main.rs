@@ -29,7 +29,7 @@ use input::InputState;
 use level::LevelData;
 use log::error;
 use math::{Angle, Bam, FixedT};
-use render_common::{DrawBuffer, GameRenderer, RenderPspDef, RenderView};
+use render_common::{DrawBuffer, Frame, GameRenderer, RenderPspDef, RenderView};
 use sound_common::SoundAction;
 use std::f32::consts::PI;
 use std::path::Path;
@@ -276,9 +276,8 @@ pub(crate) fn d_display<R: GameRenderer>(
 ) {
     let wipe = game.gamestate != game.wipe_game_state;
     if wipe {
-        // Capture old frame on first wipe frame
-        render_backend.start_wipe();
-        // Fresh bleed pattern on a new level / game state.
+        // Fresh bleed pattern for the new game state, before the new scene
+        // overwrites the index plane the wipe snapshots.
         render_backend.reset_health_bleed();
     }
     // Disable interpolation during wipe — the old frame covers the transition
@@ -290,71 +289,107 @@ pub(crate) fn d_display<R: GameRenderer>(
     };
     let automap_active = false;
 
-    match game.gamestate {
-        GameState::Level => {
-            if !automap_active && let Some(ref mut level) = game.level {
-                if !game.players_in_game[game.consoleplayer] {
-                    return;
-                }
-                // Interpolate sector heights and light levels for smooth rendering
-                level.level_data.apply_render_interpolation(frac);
+    // Everything that draws the frame runs inside `with_frame`: the backend
+    // acquires the display surface, the new scene resolves into it, UI draws
+    // onto it, then the closure returns and the backend presents.
+    let is_wiping = render_backend.is_wiping();
+    render_backend.with_frame(|frame| {
+        if wipe && !is_wiping {
+            frame.start_wipe();
+            capture_old_frame(frame, game, machines);
+        }
 
-                let player = &game.players[game.consoleplayer];
-                if let Some(view) =
-                    build_render_view(player, &level.level_data, frac, game.game_tic)
-                {
-                    game.pic_data.set_player_palette(
-                        player.status.damagecount,
-                        player.status.bonuscount,
-                        player.status.powers[gameplay::PowerType::Strength as usize],
-                        player.status.powers[gameplay::PowerType::IronFeet as usize],
-                    );
-                    // Set the health bleed before the view render so it is
-                    // applied during the scanout resolve (100 = no effect).
-                    if game.config_values[gamestate_traits::ConfigKey::HealthBleed as usize] != 0
-                    {
-                        render_backend.set_health_bleed(player.status.health);
-                    } else {
-                        render_backend.set_health_bleed(100);
+        match game.gamestate {
+            GameState::Level => {
+                if !automap_active && let Some(ref mut level) = game.level {
+                    if !game.players_in_game[game.consoleplayer] {
+                        return;
                     }
-                    render_backend.render_player_view(&view, &level.level_data, &mut game.pic_data);
-                } else {
-                    error!("Active console player has no MapObject, can't render player view");
+                    // Interpolate sector heights and light levels for smooth
+                    // rendering.
+                    level.level_data.apply_render_interpolation(frac);
+
+                    let player = &game.players[game.consoleplayer];
+                    if let Some(view) =
+                        build_render_view(player, &level.level_data, frac, game.game_tic)
+                    {
+                        game.pic_data.set_player_palette(
+                            player.status.damagecount,
+                            player.status.bonuscount,
+                            player.status.powers[gameplay::PowerType::Strength as usize],
+                            player.status.powers[gameplay::PowerType::IronFeet as usize],
+                        );
+                        // Set the health bleed before the resolve (100 = none).
+                        if game.config_values[gamestate_traits::ConfigKey::HealthBleed as usize]
+                            != 0
+                        {
+                            frame.set_health_bleed(player.status.health);
+                        } else {
+                            frame.set_health_bleed(100);
+                        }
+                        // Fills the index plane (or the surface for debug modes).
+                        frame.render_player_view(&view, &level.level_data, &mut game.pic_data);
+                    } else {
+                        error!("Active console player has no MapObject, can't render player view");
+                    }
+
+                    // Restore true post-tic sector values.
+                    level.level_data.restore_render_interpolation();
                 }
-
-                // Restore true post-tic sector values
-                level.level_data.restore_render_interpolation();
+                frame.finish_scene(&game.pic_data);
+                machines.statusbar.draw(frame.draw_buffer());
+                machines.hud_msgs.draw(frame.draw_buffer());
             }
-            machines.statusbar.draw(render_backend.frame_buffer());
-            machines.hud_msgs.draw(render_backend.frame_buffer());
-        }
-        GameState::Intermission => machines.intermission.draw(render_backend.frame_buffer()),
-        GameState::Finale => machines.finale.draw(render_backend.frame_buffer()),
-        GameState::DemoScreen => {
-            if game.page.cache.name != game.page.name {
-                let lump = game
-                    .wad_data
-                    .get_lump(game.page.name)
-                    .expect("TITLEPIC missing");
-                game.page.cache = WadPatch::from_lump(lump);
+            GameState::Intermission => machines.intermission.draw(frame.draw_buffer()),
+            GameState::Finale => machines.finale.draw(frame.draw_buffer()),
+            GameState::DemoScreen => {
+                if game.page.cache.name != game.page.name {
+                    let lump = game
+                        .wad_data
+                        .get_lump(game.page.name)
+                        .expect("TITLEPIC missing");
+                    game.page.cache = WadPatch::from_lump(lump);
+                }
+                page_drawer(game, frame.draw_buffer());
             }
-            page_drawer(game, render_backend.frame_buffer());
+            _ => {}
         }
-        _ => {}
-    }
 
-    if wipe {
-        // Overdraw old-frame columns on top of the new scene
-        if render_backend.do_wipe() {
+        // Melt the old frame over the now-composited new surface, uniformly.
+        if wipe && frame.do_wipe() {
             game.wipe_game_state = game.gamestate;
-            // Snap player prev_render so first interpolated frame after wipe
-            // doesn't jump from a stale position
+            // Snap player prev_render so the first interpolated frame after the
+            // wipe doesn't jump from a stale position.
             let player = &mut game.players[game.consoleplayer];
             player.save_prev_render();
         }
-        menu.draw(render_backend.frame_buffer());
-    } else {
-        menu.draw(render_backend.frame_buffer());
+        menu.draw(frame.draw_buffer());
+    });
+}
+
+/// Draw the old state into the wipe buffer so it can be melted over the new
+/// frame. `Level` resolves the still-present index plane plus HUD; others re-draw
+/// their screen.
+fn capture_old_frame<F: Frame>(
+    frame: &mut F,
+    game: &mut Game,
+    machines: &mut GameSubsystem<
+        impl SubsystemTrait,
+        impl SubsystemTrait,
+        impl SubsystemTrait,
+        impl SubsystemTrait,
+    >,
+) {
+    match game.wipe_game_state {
+        GameState::Level => {
+            frame.resolve_index_into_wipe(&game.pic_data);
+            machines.statusbar.draw(&mut frame.wipe_buffer());
+            machines.hud_msgs.draw(&mut frame.wipe_buffer());
+        }
+        // Level->Level: old level view still in the index plane.
+        GameState::ForceWipe => frame.resolve_index_into_wipe(&game.pic_data),
+        GameState::Intermission => machines.intermission.draw(&mut frame.wipe_buffer()),
+        GameState::Finale => machines.finale.draw(&mut frame.wipe_buffer()),
+        GameState::DemoScreen => page_drawer(game, &mut frame.wipe_buffer()),
     }
-    render_backend.flip_and_present();
 }

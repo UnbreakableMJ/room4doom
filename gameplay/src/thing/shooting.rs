@@ -695,7 +695,7 @@ impl ShootTraverse {
     /// - Lines: activates specials, checks portal slopes, spawns puffs on walls
     /// - Things: skips self and non-shootable, spawns blood/puff and applies
     ///   damage
-    fn resolve(&mut self, shooter: &mut MapObject, intercept: &mut Intercept) -> bool {
+    fn resolve(&self, shooter: &mut MapObject, intercept: &mut Intercept) -> bool {
         if let Some(line) = intercept.line.as_mut() {
             if line.special != 0 {
                 shoot_special_line(line.clone(), shooter);

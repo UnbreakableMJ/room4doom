@@ -5,11 +5,16 @@ use math::m_random;
 /// Duration between wipe steps (~60Hz).
 const STEP_INTERVAL_MS: u128 = 16;
 
+/// Opaque black (`0xAARRGGBB`), used to clear the snapshot so uncaptured pixels
+/// melt opaque (some display backends require fully-opaque surface pixels).
+const OPAQUE_BLACK: u32 = 0xFF00_0000;
+
 pub struct Wipe {
     y: Vec<i32>,
     height: i32,
     width: i32,
-    /// Snapshot of the old frame taken when the wipe starts.
+    /// The old frame, drawn into by the caller when a wipe starts and melted
+    /// over the display surface. Width-pitched `0xAARRGGBB`.
     snapshot: Vec<u32>,
     /// Time of the last wipe step, used to gate advancement.
     last_step: Instant,
@@ -48,30 +53,44 @@ impl Wipe {
         self.snapshot.clear();
     }
 
-    /// Capture the current display buffer as the old frame for melting.
-    pub fn start(&mut self, buf: &[u32]) {
+    /// Begin a wipe: size the snapshot buffer and clear it to opaque black for
+    /// the caller to draw the old frame into (via [`Self::snapshot_mut`]).
+    /// Opaque (`0xFF` alpha) because the snapshot is melted onto the display
+    /// surface, which some backends require to be fully opaque.
+    pub fn start(&mut self) {
+        let n = self.width as usize * self.height as usize;
         self.snapshot.clear();
-        self.snapshot.extend_from_slice(buf);
+        self.snapshot.resize(n, OPAQUE_BLACK);
         self.last_step = Instant::now();
     }
 
-    /// Returns true if the snapshot has been captured (wipe is in progress).
+    /// The old-frame buffer, width-pitched `0xAARRGGBB`, for the caller to draw
+    /// the old state into after [`Self::start`].
+    pub fn snapshot_mut(&mut self) -> &mut [u32] {
+        &mut self.snapshot
+    }
+
+    /// Returns true if a wipe is in progress (snapshot captured).
     pub fn is_wiping(&self) -> bool {
         !self.snapshot.is_empty()
     }
 
-    /// Overdraw shifted old-frame columns on top of the display buffer.
+    /// Overdraw shifted old-frame columns on top of the display surface.
     ///
-    /// The caller must have already rendered the new scene into `buf`.
-    /// This paints the old frame's columns shifted down, covering the
-    /// bottom portion where the old scene should still be visible.
+    /// The caller must have already composited the new scene into `buf`. This
+    /// paints the old frame's columns shifted down, covering the bottom portion
+    /// where the old scene should still be visible.
+    ///
+    /// `buf` is the display surface (`surface_pitch` elements per row, possibly
+    /// padded); the snapshot is width-pitched, so the two are addressed with
+    /// their own pitches.
     ///
     /// Only advances the melt when at least `STEP_INTERVAL_MS` has elapsed
     /// since the last step; otherwise it redraws the current state without
     /// advancing.
     ///
     /// Returns true when the melt is complete.
-    pub fn do_melt_pixels(&mut self, buf: &mut [u32], pitch: usize) -> bool {
+    pub fn do_melt_pixels(&mut self, buf: &mut [u32], surface_pitch: usize) -> bool {
         let elapsed = self.last_step.elapsed().as_millis();
         let should_step = elapsed >= STEP_INTERVAL_MS;
         if should_step {
@@ -81,6 +100,7 @@ impl Wipe {
         let mut done = true;
         let stepping = self.height as usize / 100;
         let f = self.height / 200;
+        let src_pitch = self.width as usize;
 
         for x in (0..self.width as usize - stepping).step_by(stepping) {
             if self.y[x] < 0 {
@@ -91,7 +111,7 @@ impl Wipe {
                 // with old frame pixels.
                 for col in x..x + stepping {
                     for row in 0..self.height as usize {
-                        buf[row * pitch + col] = self.snapshot[row * pitch + col];
+                        buf[row * surface_pitch + col] = self.snapshot[row * src_pitch + col];
                     }
                 }
                 done = false;
@@ -104,7 +124,7 @@ impl Wipe {
                 for col in x..x + stepping {
                     for src_y in 0..(self.height as usize - melt_y) {
                         let dst_y = src_y + melt_y;
-                        buf[dst_y * pitch + col] = self.snapshot[src_y * pitch + col];
+                        buf[dst_y * surface_pitch + col] = self.snapshot[src_y * src_pitch + col];
                     }
                 }
 

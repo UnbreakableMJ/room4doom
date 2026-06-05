@@ -11,8 +11,6 @@ use coarse_prof::profile;
 use pixels::wgpu;
 use winit::window::{Fullscreen, Window};
 
-use crate::DrawBuffer;
-
 /// Full-screen nearest-neighbour stretch renderer.
 ///
 /// Draws the pixels framebuffer texture to the surface via a single full-screen
@@ -168,7 +166,7 @@ impl PixelsDisplay {
         let pixels = pixels::PixelsBuilder::new(size.width, size.height, surface)
             // Draw buffer is 0xFFRRGGBB; on little-endian the bytes are [BB,GG,RR,FF] = BGRA,
             // so setting Bgra8UnormSrgb allows a zero-copy bulk upload of the u32 buffer.
-            .texture_format(pixels::wgpu::TextureFormat::Bgra8UnormSrgb)
+            .texture_format(wgpu::TextureFormat::Bgra8UnormSrgb)
             .enable_vsync(vsync)
             .build()
             .expect("failed to create pixels surface");
@@ -180,26 +178,19 @@ impl PixelsDisplay {
         }
     }
 
-    /// Present the draw buffer to the screen.
-    ///
-    /// The framebuffer is uploaded to the pixels texture, then the
-    /// `StretchRenderer` draws it stretched to fill the window surface
-    /// (nearest-neighbour). Width maps 1:1; height is stretched by
-    /// `win_h / buf_h` — producing the CRT 1.2× pixel aspect.
-    pub(crate) fn blit(&mut self, buffer: &DrawBuffer) {
+    /// Acquire the framebuffer texture (sized to the buffer), hand it to `body`
+    /// as a `0xFFRRGGBB`/BGRA slice (pitch = width, no padding), then upload and
+    /// draw it stretched to fill the window via the `StretchRenderer`.
+    pub(crate) fn render_frame(&mut self, w: u32, h: u32, body: impl FnOnce(&mut [u32], usize)) {
         #[cfg(feature = "hprof")]
-        profile!("pixels_blit");
-        let buf_w = buffer.size.width_usize() as u32;
-        let buf_h = buffer.size.height_usize() as u32;
+        profile!("pixels_frame");
 
         // Resize the internal texture if the framebuffer dimensions changed.
-        let tex_changed =
-            self.pixels.texture().width() != buf_w || self.pixels.texture().height() != buf_h;
+        let tex_changed = self.pixels.texture().width() != w || self.pixels.texture().height() != h;
         if tex_changed {
             self.pixels
-                .resize_buffer(buf_w, buf_h)
+                .resize_buffer(w, h)
                 .expect("failed to resize pixels buffer");
-            // Texture was recreated — rebuild the bind group.
             self.stretch.rebind(self.pixels.device(), &self.pixels);
         }
 
@@ -209,17 +200,16 @@ impl PixelsDisplay {
             .resize_surface(win_size.width, win_size.height)
             .expect("failed to resize pixels surface");
 
-        // Upload framebuffer: 0xFFRRGGBB in memory on little-endian is [BB,GG,RR,FF] =
-        // BGRA, matching the Bgra8UnormSrgb texture format — bulk copy with no
-        // per-pixel work.
+        // `frame_mut()` is a stable staging buffer (uploaded on `render_with`);
+        // 0xFFRRGGBB == BGRA bytes matches Bgra8UnormSrgb, so reinterpret as u32.
         {
             #[cfg(feature = "hprof")]
-            profile!("pixels_upload");
-            let pixel_count = (buf_w * buf_h) as usize;
-            let src = unsafe {
-                std::slice::from_raw_parts(buffer.buffer.as_ptr() as *const u8, pixel_count * 4)
+            profile!("pixels_compose");
+            let frame = self.pixels.frame_mut();
+            let dst = unsafe {
+                std::slice::from_raw_parts_mut(frame.as_mut_ptr() as *mut u32, frame.len() / 4)
             };
-            self.pixels.frame_mut()[..src.len()].copy_from_slice(src);
+            body(dst, w as usize);
         }
 
         {

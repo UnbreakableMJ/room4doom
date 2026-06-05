@@ -52,7 +52,7 @@ const BLEED_EDGE_POW: f32 = 2.0;
 /// Per-pixel scanout effect selecting which PLAYPAL palette resolves a pixel:
 /// `out[i] = palettes_flat[palette_offset(x, y) * 256 + idx[i]]`. 0 = base.
 pub trait ScreenEffect {
-    fn palette_offset(&self, x: usize, y: u16) -> usize;
+    fn palette_offset(&self, x: usize, y: u16, use_palette: usize) -> usize;
     fn is_active(&self) -> bool {
         true
     }
@@ -157,10 +157,10 @@ impl HealthBleed {
 
 impl ScreenEffect for HealthBleed {
     #[inline(always)]
-    fn palette_offset(&self, x: usize, y: u16) -> usize {
+    fn palette_offset(&self, x: usize, y: u16, use_palette: usize) -> usize {
         let shown = unsafe { *self.shown.get_unchecked(x) };
         if y >= shown {
-            return 0;
+            return use_palette;
         }
         // Count how many precomputed band thresholds this depth exceeds — a
         // couple of compares, no arithmetic.
@@ -273,8 +273,50 @@ fn smooth_noise(width: usize, amplitude: i32, step: usize) -> Vec<i32> {
 // Traits
 // =============================================================================
 
+/// Owns the renderer + display backend. A frame is composed inside
+/// [`GameRenderer::with_frame`], which acquires the display surface, runs the
+/// caller's closure against a [`Frame`], then presents.
 pub trait GameRenderer {
-    /// Render the 3D view from the given viewpoint.
+    /// Query the size things are drawn at, outside a frame (for layout/setup).
+    fn buffer_size(&self) -> &BufferSize;
+
+    /// Whether a wipe transition is in progress.
+    fn is_wiping(&self) -> bool;
+
+    /// Regenerate the bleed's random column pattern (call on new game / level
+    /// load so each level gets a fresh shape).
+    fn reset_health_bleed(&mut self);
+
+    /// Acquire the display surface and compose one frame into it via `body`,
+    /// then present. Everything that draws the frame (scene, wipe, UI) runs
+    /// inside `body` against the [`Frame`].
+    fn with_frame(&mut self, body: impl FnOnce(&mut Self::Frame<'_>));
+
+    /// The per-frame draw context produced by [`Self::with_frame`].
+    type Frame<'a>: Frame
+    where
+        Self: 'a;
+}
+
+/// Per-frame draw operations, valid only inside [`GameRenderer::with_frame`].
+/// The display surface is acquired for the duration; the scene resolves into it
+/// and UI draws onto it directly.
+pub trait Frame {
+    /// Begin a wipe: size + clear the old-frame snapshot buffer. The caller then
+    /// draws the old state into it via [`Self::wipe_buffer`] /
+    /// [`Self::resolve_index_into_wipe`].
+    fn start_wipe(&mut self);
+
+    /// The old-frame wipe buffer as a [`DrawBuffer`], for the caller to draw the
+    /// old state into (`0xAARRGGBB`, width-pitched).
+    fn wipe_buffer(&mut self) -> impl DrawBuffer;
+
+    /// Resolve the current index plane into the wipe buffer — the old `Level`
+    /// view (still present in the index at wipe start).
+    fn resolve_index_into_wipe(&mut self, pic_data: &PicData);
+
+    /// Render the 3D view, filling the 8-bit index plane (the scene is not yet
+    /// resolved to the surface — see [`Self::finish_scene`]).
     fn render_player_view(
         &mut self,
         view: &RenderView,
@@ -282,37 +324,27 @@ pub trait GameRenderer {
         pic_data: &mut PicData,
     );
 
-    /// Present the current buffer to screen.
-    fn flip_and_present(&mut self);
-
-    /// Get the framebuffer used for direct draw access.
-    fn frame_buffer(&mut self) -> &mut impl DrawBuffer;
-
-    /// Capture the current buffer as the wipe source (old frame).
-    fn start_wipe(&mut self);
-
-    /// Overdraw old-frame columns on the current buffer. Returns true when
-    /// the melt is complete.
+    /// Melt the old-frame wipe buffer one step over the display surface. Returns
+    /// true when complete. Called after the new frame is composited.
     fn do_wipe(&mut self) -> bool;
 
-    /// Whether a wipe transition is currently in progress.
-    fn is_wiping(&self) -> bool;
+    /// Resolve the index plane (+ health bleed) into the display surface, then
+    /// draw any debug overlays. No-op resolve when the scene wrote the surface
+    /// directly (debug colour modes).
+    fn finish_scene(&mut self, pic_data: &PicData);
 
-    fn buffer_size(&self) -> &BufferSize;
+    /// The surface as a [`DrawBuffer`] for UI subsystems to draw onto.
+    fn draw_buffer(&mut self) -> &mut impl DrawBuffer;
 
-    /// Update the health bleed effect for the next scanout. The effect is
-    /// applied per-pixel during the index→u32 resolve (no separate pass). Pass
-    /// 100 to clear it.
+    fn size(&self) -> &BufferSize;
+
+    /// Update the health bleed effect for this frame's resolve. Pass 100 to clear.
     fn set_health_bleed(&mut self, health: i32);
-
-    /// Regenerate the bleed's random column pattern (call on new game / level
-    /// load so each level gets a fresh shape).
-    fn reset_health_bleed(&mut self);
 }
 
 #[cfg(test)]
 mod bleed_tests {
-    use super::{BLEED_PAL_COUNT, BLEED_PAL_START, HealthBleed, ScreenEffect};
+    use super::{BLEED_PAL_COUNT, BLEED_PAL_START, HealthBleed, ScreenEffect as _};
 
     const W: usize = 64;
     const H: usize = 120;
@@ -321,7 +353,7 @@ mod bleed_tests {
     fn lit(v: &HealthBleed) -> usize {
         (0..v.height)
             .flat_map(|y| (0..v.width).map(move |x| (x, y as u16)))
-            .filter(|&(x, y)| v.palette_offset(x, y) != 0)
+            .filter(|&(x, y)| v.palette_offset(x, y, 0) != 0)
             .count()
     }
 
@@ -341,10 +373,14 @@ mod bleed_tests {
         let mut v = HealthBleed::default();
         v.update(20, W, H);
         assert!(v.is_active());
-        let top = v.palette_offset(0, 0);
+        let top = v.palette_offset(0, 0, 0);
         assert!(top >= BLEED_PAL_START, "top of column tints");
         assert!(top < BLEED_PAL_START + BLEED_PAL_COUNT, "in red range");
-        assert_eq!(v.palette_offset(0, H as u16 - 1), 0, "bottom stays clear");
+        assert_eq!(
+            v.palette_offset(0, H as u16 - 1, 0),
+            0,
+            "bottom stays clear"
+        );
     }
 
     /// Lower health grows the columns (more lit pixels).
@@ -366,7 +402,7 @@ mod bleed_tests {
         let mut v = HealthBleed::default();
         v.update(0, W, H);
         let row_mean = |y: u16| -> f32 {
-            let sum: usize = (0..v.width).map(|x| v.palette_offset(x, y)).sum();
+            let sum: usize = (0..v.width).map(|x| v.palette_offset(x, y, 0)).sum();
             sum as f32 / v.width as f32
         };
         assert!(
@@ -387,22 +423,32 @@ mod bleed_tests {
     }
 }
 
+/// A u32 draw target plus the 8-bit scene index plane behind it. The renderer
+/// fills the index plane (`set_index`/`index_mut`) then `resolve`s it to u32;
+/// UI draws u32 directly (`set_pixel`/`buf_mut`). For the real backend the u32
+/// side is the display surface (possibly strided — always use `pitch`).
 pub trait DrawBuffer {
     fn size(&self) -> &BufferSize;
+    /// Write a `0xAARRGGBB` pixel to the resolved display surface (UI/overlays).
     fn set_pixel(&mut self, x: usize, y: usize, colour: u32);
+    /// Read a `0xAARRGGBB` pixel from the resolved display surface.
     fn read_pixel(&self, x: usize, y: usize) -> u32;
+    /// Flat position of `(x, y)` in the 8-bit index plane (`y * pitch() + x`).
+    /// Pairs with [`Self::index_mut`] and [`Self::pitch`] for column stepping.
     fn get_buf_index(&self, x: usize, y: usize) -> usize;
+    /// Row stride of the index plane in elements (the buffer width; the display
+    /// surface may be padded wider, but that padding is hidden behind the pixel
+    /// accessors).
     fn pitch(&self) -> usize;
     fn buf_mut(&mut self) -> &mut [u32];
-    fn debug_flip_and_present(&mut self);
 
     /// Write a palette index to the 8-bit scene plane (the hot geometry path).
     fn set_index(&mut self, x: usize, y: usize, idx: u8);
     /// The 8-bit palette-index plane, for inner-loop `idx[pos] = colourmap[src]`.
     fn index_mut(&mut self) -> &mut [u8];
-    /// Resolve the index plane to u32. No effect: `buffer[i] = palette[idx[i]]`.
+    /// Resolve the index plane to u32. No effect: `out[i] = palette[idx[i]]`.
     /// Bleed active: per-pixel select into `palettes_flat` (`PALLETE_LEN*256`).
-    fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32]);
+    fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32], use_palette: usize);
 }
 
 // =============================================================================

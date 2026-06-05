@@ -5,8 +5,6 @@ use sdl2::rect::Rect;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{FullscreenType, Window, WindowContext};
 
-use crate::DrawBuffer;
-
 /// SDL2 display: owns the canvas, texture, and texture creator.
 pub struct Sdl2Display {
     canvas: Canvas<Window>,
@@ -45,18 +43,19 @@ impl Sdl2Display {
         }
     }
 
-    /// Present the front buffer to the screen.
-    pub(crate) fn blit(&mut self, buffer: &DrawBuffer) {
-        let w = buffer.size.width() as u32;
-        let h = buffer.size.height() as u32;
+    /// Lock the streaming texture (sized to the buffer), hand it to `body` as a
+    /// `0xFFRRGGBB` slice with its row pitch in u32 elements, then copy it
+    /// stretched to the canvas and present.
+    pub(crate) fn render_frame(&mut self, w: u32, h: u32, body: impl FnOnce(&mut [u32], usize)) {
         self.ensure_texture(w, h);
-
-        let byte_buf = unsafe {
-            std::slice::from_raw_parts(buffer.buffer.as_ptr() as *const u8, buffer.buffer.len() * 4)
-        };
-        let stride = buffer.size.width_usize() * 4;
         let tex = self.texture.as_mut().unwrap();
-        tex.update(None, byte_buf, stride).unwrap();
+        tex.with_lock(None, |bytes, byte_pitch| {
+            let dst = unsafe {
+                std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut u32, bytes.len() / 4)
+            };
+            body(dst, byte_pitch / 4);
+        })
+        .unwrap();
         self.canvas.copy(tex, None, Some(self.crop_rect)).unwrap();
         self.canvas.present();
     }

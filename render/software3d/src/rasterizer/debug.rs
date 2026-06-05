@@ -21,18 +21,13 @@ pub(crate) fn write_pixel(
     alpha: Option<u8>,
 ) {
     if let Some(a) = alpha {
-        let dst = buffer.read_pixel(x, y);
         let a = a as u16;
-        let inv_a = 255 - a;
         let sr = (color >> 16) as u8;
         let sg = (color >> 8) as u8;
         let sb = color as u8;
-        let dr = (dst >> 16) as u8;
-        let dg = (dst >> 8) as u8;
-        let db = dst as u8;
-        let r = ((sr as u16 * a + dr as u16 * inv_a) >> 8) as u8;
-        let g = ((sg as u16 * a + dg as u16 * inv_a) >> 8) as u8;
-        let b = ((sb as u16 * a + db as u16 * inv_a) >> 8) as u8;
+        let r = ((sr as u16 * a) >> 8) as u8;
+        let g = ((sg as u16 * a) >> 8) as u8;
+        let b = ((sb as u16 * a) >> 8) as u8;
         buffer.set_pixel(
             x,
             y,

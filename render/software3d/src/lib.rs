@@ -1088,13 +1088,17 @@ impl Software3D {
         }
     }
 
+    /// Rasterize the scene into the index plane. Returns `true` when the caller
+    /// should resolve index→u32; `false` for debug colour modes that wrote u32
+    /// directly. Debug outline/normal overlays are drawn separately, after the
+    /// caller resolves — see [`Self::draw_debug_overlays`].
     pub fn draw_view(
         &mut self,
         view: &RenderView,
         level_data: &LevelData,
         pic_data: &mut PicData,
         buffer: &mut impl DrawBuffer,
-    ) {
+    ) -> bool {
         self.prepare_vertex_cache(&level_data.bsp_3d);
         self.current_frame_id = self.current_frame_id.wrapping_add(1);
         #[cfg(feature = "hprof")]
@@ -1148,24 +1152,6 @@ impl Software3D {
             // Draw player weapon overlay on top of everything
             self.draw_player_weapons(view, pic_data, buffer);
 
-            // Resolve the 8-bit scene index plane to the u32 buffer using the
-            // current scanout palette (damage/bonus/rad tint applied here).
-            // The debug colour modes (clear_colour set) write true-colour u32
-            // directly and must not be resolved.
-            if self.debug.options.clear_colour.is_none() {
-                buffer.resolve(pic_data.palette(), pic_data.palettes_flat());
-            }
-
-            // Debug: draw polygon outlines / wireframe as post-render overlay
-            if self.debug.options.outline || self.debug.options.wireframe {
-                self.draw_debug_polygon_outlines(buffer);
-            }
-
-            // Debug: draw normal direction lines
-            if self.debug.options.normals {
-                self.draw_debug_normal_lines(buffer);
-            }
-
             #[cfg(feature = "render_stats")]
             {
                 self.stats.frames_since_print += 1;
@@ -1200,6 +1186,20 @@ impl Software3D {
                     self.stats.last_print = std::time::Instant::now();
                 }
             }
+        }
+        // Debug colour modes wrote u32 directly; everything else needs resolve.
+        self.debug.options.clear_colour.is_none()
+    }
+
+    /// Draw the debug outline/normal overlays onto the resolved u32 buffer.
+    /// Called by the frame after resolve (geometry was captured during
+    /// `draw_view`; this only rasterizes the cached lines).
+    pub fn draw_debug_overlays(&mut self, buffer: &mut impl DrawBuffer) {
+        if self.debug.options.outline || self.debug.options.wireframe {
+            self.draw_debug_polygon_outlines(buffer);
+        }
+        if self.debug.options.normals {
+            self.draw_debug_normal_lines(buffer);
         }
     }
 

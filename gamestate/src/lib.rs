@@ -33,7 +33,7 @@ use gameplay::{
     spawn_specials, update_specials,
 };
 use gamestate_traits::{ConfigKey, GameState, GameTraits, SubsystemTrait, WorldInfo};
-use log::{debug, error, info, trace, warn};
+use log::{Level, debug, error, info, trace, warn};
 use math::m_clear_random;
 use pic_data::PicData;
 use sound_common::{MusTrack, SndServerTx, SoundAction};
@@ -532,10 +532,12 @@ impl Game {
     /// specials, and set up UMAPINFO overrides.
     fn do_load_level(&mut self) {
         debug!("Entered do_load_level");
-        self.wipe_game_state = GameState::ForceWipe;
+        if self.gamestate == GameState::Level {
+            self.wipe_game_state = GameState::ForceWipe;
+        }
         self.gamestate = GameState::Level;
 
-        for player in self.players.iter_mut() {
+        for player in &mut self.players {
             if player.player_state == PlayerState::Dead {
                 player.player_state = PlayerState::Reborn;
                 for i in 0..player.frags.len() {

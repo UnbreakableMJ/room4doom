@@ -67,12 +67,11 @@ impl DrawBuffer for HeadlessBuffer {
     fn index_mut(&mut self) -> &mut [u8] {
         &mut self.index
     }
-    fn resolve(&mut self, palette: &[u32], _palettes_flat: &[u32]) {
+    fn resolve(&mut self, palette: &[u32], _palettes_flat: &[u32], _use_palette: usize) {
         for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
             *out = palette[idx as usize];
         }
     }
-    fn debug_flip_and_present(&mut self) {}
 }
 
 /// Build a fixed-pose RenderView at the player-1 start, eye height above floor.

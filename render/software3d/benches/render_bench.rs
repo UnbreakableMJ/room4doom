@@ -74,7 +74,7 @@ impl DrawBuffer for HeadlessBuffer {
     fn index_mut(&mut self) -> &mut [u8] {
         &mut self.index
     }
-    fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32]) {
+    fn resolve(&mut self, palette: &[u32], palettes_flat: &[u32], _use_palette: usize) {
         // Mirrors render-backend's DrawBuffer::resolve.
         if !self.bleed.is_active() {
             for (out, &idx) in self.data.iter_mut().zip(self.index.iter()) {
@@ -86,7 +86,7 @@ impl DrawBuffer for HeadlessBuffer {
         for y in 0..self.h as u16 {
             for x in 0..self.w {
                 let idx = unsafe { *self.index.get_unchecked(i) } as usize;
-                let off = self.bleed.palette_offset(x, y);
+                let off = self.bleed.palette_offset(x, y, 0);
                 unsafe {
                     *self.data.get_unchecked_mut(i) = *palettes_flat.get_unchecked(off * 256 + idx);
                 }
@@ -94,7 +94,6 @@ impl DrawBuffer for HeadlessBuffer {
             }
         }
     }
-    fn debug_flip_and_present(&mut self) {}
 }
 
 /// Build a fixed-pose RenderView at the player-1 start, eye height above floor.
@@ -202,7 +201,7 @@ fn bench_resolve(
     for (state, health) in [("none", 100), ("hurt", 50), ("crit", 5)] {
         buffer.set_health_bleed(health);
         c.bench_function(&format!("{prefix}/{state}"), |b| {
-            b.iter(|| buffer.resolve(&palette, &palettes_flat));
+            b.iter(|| buffer.resolve(&palette, &palettes_flat, 0));
         });
     }
 }

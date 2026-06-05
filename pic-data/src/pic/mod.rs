@@ -544,6 +544,11 @@ impl PicData {
         &self.palettes[self.use_pallette].0
     }
 
+    #[inline(always)]
+    pub fn use_palette(&self) -> usize {
+        self.use_pallette
+    }
+
     /// All palettes as one `PALLETE_LEN * 256` slice, `[pal * 256 + colour]`.
     #[inline(always)]
     pub fn palettes_flat(&self) -> &[WadColour] {
