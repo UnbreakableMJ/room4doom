@@ -706,7 +706,7 @@ impl SegRender {
                             pic_data,
                             rend,
                         );
-                    };
+                    }
                     rdata.portal_clip.ceilingclip[clip_index] = view.viewheight;
                     rdata.portal_clip.floorclip[clip_index] = FixedT::from(-1);
                 }
@@ -790,7 +790,7 @@ impl SegRender {
     /// halved and dc_iscale is caller-supplied.
     #[inline]
     fn draw_wall_column(
-        &mut self,
+        &self,
         texture_column: &[u16],
         dc_texturemid: FixedT,
         y_start: i32,
@@ -847,7 +847,7 @@ impl SegRender {
     /// perspective distance scaled by view angle cosine/sine.
     #[inline]
     fn draw_flat_column(
-        &mut self,
+        &self,
         texture: &FlatPic,
         view_x: FixedT,
         view_y: FixedT,

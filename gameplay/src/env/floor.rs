@@ -5,7 +5,7 @@ use std::ptr::{self, null_mut};
 
 use sound_common::SfxName;
 
-use crate::SectorExt;
+use crate::SectorExt as _;
 use crate::env::specials::{
     PlaneResult, find_highest_floor_surrounding, find_lowest_ceiling_surrounding,
     find_lowest_floor_surrounding, find_next_highest_floor, get_next_sector, move_plane,
@@ -131,18 +131,13 @@ pub fn ev_do_floor(line: MapPtr<LineDef>, kind: FloorKind, level: &mut LevelStat
                     if line.flags.contains(LineDefFlags::TwoSided) {
                         if line.front_sidedef.sector == sec {
                             sec = line.back_sidedef.as_ref().unwrap().sector.clone();
-                            if sec.floorheight == floor.destheight {
-                                floor.texture = sec.floorpic;
-                                floor.newspecial = sec.special;
-                                break;
-                            }
                         } else {
                             sec = line.front_sidedef.sector.clone();
-                            if sec.floorheight == floor.destheight {
-                                floor.texture = sec.floorpic;
-                                floor.newspecial = sec.special;
-                                break;
-                            }
+                        }
+                        if sec.floorheight == floor.destheight {
+                            floor.texture = sec.floorpic;
+                            floor.newspecial = sec.special;
+                            break;
                         }
                     }
                 }
@@ -228,7 +223,7 @@ impl Think for FloorMove {
             }
 
             floor.sector.specialdata = None;
-            <FloorMove as Think>::thinker_mut(floor).mark_remove();
+            <Self as Think>::thinker_mut(floor).mark_remove();
         }
 
         true

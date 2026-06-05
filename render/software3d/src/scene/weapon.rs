@@ -40,14 +40,14 @@ impl Software3D {
     pub(crate) fn draw_player_weapons(
         &mut self,
         view: &RenderView,
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
         let sector_light = view.sector_lightlevel >> 4;
         // Weapons get +2 extra light (matching original Doom behaviour)
         let base_brightness = (sector_light + view.extralight + 2).min(15);
 
-        for psp in view.psprites.iter() {
+        for psp in &view.psprites {
             if psp.active {
                 self.draw_player_weapon_sprite(
                     psp,
@@ -71,7 +71,7 @@ impl Software3D {
         psp: &RenderPspDef,
         base_brightness: usize,
         is_shadow: bool,
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
         if !psp.active {

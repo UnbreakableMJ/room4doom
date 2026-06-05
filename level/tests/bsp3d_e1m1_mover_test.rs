@@ -39,7 +39,7 @@ fn test_e1m1_linedef373_vertex_sharing() {
     }
 
     let sector_14_subsectors = &bsp3d.sector_subsectors[14];
-    println!("\nSector 14 subsectors: {:?}", sector_14_subsectors);
+    println!("\nSector 14 subsectors: {sector_14_subsectors:?}");
 
     let mut floor_vertex_indices = std::collections::HashSet::new();
     for &ssid in sector_14_subsectors {
@@ -52,20 +52,14 @@ fn test_e1m1_linedef373_vertex_sharing() {
         }
     }
 
-    println!(
-        "\nSector 14 floor vertex indices: {:?}",
-        floor_vertex_indices
-    );
+    println!("\nSector 14 floor vertex indices: {floor_vertex_indices:?}");
 
     let mut unshared = Vec::new();
     for &wvi in &wall_vertex_indices {
         let pos = vertices[wvi];
         if (pos.z - 32.0).abs() < 1.0 {
             let shared = floor_vertex_indices.contains(&wvi);
-            println!(
-                "Wall top vi={} pos={:?} shared_with_floor={}",
-                wvi, pos, shared
-            );
+            println!("Wall top vi={wvi} pos={pos:?} shared_with_floor={shared}");
             if !shared {
                 unshared.push(wvi);
             }
@@ -127,8 +121,7 @@ fn test_e1m1_linedef373_vertex_sharing() {
 
     assert!(
         unshared.is_empty(),
-        "Wall top vertices {:?} for linedef 373 are NOT shared with sector 14 floor polygons — mover will not update them",
-        unshared
+        "Wall top vertices {unshared:?} for linedef 373 are NOT shared with sector 14 floor polygons — mover will not update them"
     );
 }
 
@@ -207,8 +200,7 @@ fn test_e1m1_all_mover_vertex_sharing() {
 
         assert!(
             unshared.is_empty(),
-            "Sector 14 floor mover: lower wall top vertex indices {:?} not shared with floor polygons",
-            unshared
+            "Sector 14 floor mover: lower wall top vertex indices {unshared:?} not shared with floor polygons"
         );
     }
 
@@ -268,8 +260,7 @@ fn test_e1m1_all_mover_vertex_sharing() {
 
         assert!(
             unshared.is_empty(),
-            "Sector 26 ceiling mover: upper wall bottom vertex indices {:?} not shared with ceiling polygons",
-            unshared
+            "Sector 26 ceiling mover: upper wall bottom vertex indices {unshared:?} not shared with ceiling polygons"
         );
     }
 }

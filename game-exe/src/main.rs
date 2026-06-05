@@ -207,7 +207,7 @@ fn run_headless(mut game: Game, mut input: input::InputState, options: CLIOption
     use crate::d_main::run_game_tic;
     use doom_ui::{Finale, GameMenu, Intermission, Messages, Statusbar};
     use gamestate::subsystems::GameSubsystem;
-    use gamestate_traits::SubsystemTrait;
+    use gamestate_traits::SubsystemTrait as _;
 
     const HEADLESS_WIDTH: i32 = 320;
 

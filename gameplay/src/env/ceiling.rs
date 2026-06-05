@@ -5,7 +5,7 @@ use std::ptr::null_mut;
 
 use sound_common::SfxName;
 
-use crate::SectorExt;
+use crate::SectorExt as _;
 use crate::env::specials::{PlaneResult, find_highest_ceiling_surrounding, move_plane};
 use crate::env::switch::start_sector_sound;
 use crate::level::LevelState;
@@ -192,7 +192,7 @@ impl Think for CeilingMove {
                             ceiling.direction = 1;
                             start_sector_sound(line, SfxName::Pstop, &level.snd_command);
                         }
-                        _ => {}
+                        CeilKind::RaiseToHighest => {}
                     }
                 } else if matches!(res, PlaneResult::Crushed) {
                     match ceiling.kind {

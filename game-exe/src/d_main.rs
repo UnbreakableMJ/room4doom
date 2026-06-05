@@ -145,12 +145,12 @@ pub(crate) fn load_voxels(
             pwad_overrides,
         )
     } else {
-        log::warn!("Voxel path is not a directory or PK3: {}", voxel_path);
+        log::warn!("Voxel path is not a directory or PK3: {voxel_path}");
         return None;
     };
     println!("]");
     if mgr.is_empty() {
-        log::warn!("No voxel models loaded from {}", voxel_path);
+        log::warn!("No voxel models loaded from {voxel_path}");
         return None;
     }
     Some(Arc::new(mgr))
@@ -352,7 +352,7 @@ pub(crate) fn d_display<R: GameRenderer>(
                 }
                 page_drawer(game, frame.draw_buffer());
             }
-            _ => {}
+            GameState::ForceWipe => {}
         }
 
         // Melt the old frame over the now-composited new surface, uniformly.
@@ -372,7 +372,7 @@ pub(crate) fn d_display<R: GameRenderer>(
 /// their screen.
 fn capture_old_frame<F: Frame>(
     frame: &mut F,
-    game: &mut Game,
+    game: &Game,
     machines: &mut GameSubsystem<
         impl SubsystemTrait,
         impl SubsystemTrait,

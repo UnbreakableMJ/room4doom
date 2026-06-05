@@ -5,7 +5,7 @@
 
 use std::f64::consts::PI;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::{self, Write as _};
 use std::path::Path;
 
 use wad::WadData;
@@ -79,7 +79,7 @@ pub fn process_wad(input_path: &Path, output_path: &Path, options: &BspOptions) 
     let mut all_lumps: Vec<OutputLump> = Vec::new();
 
     for map_name in &maps {
-        log::info!("Processing {}", map_name);
+        log::info!("Processing {map_name}");
 
         let input = load_input(&wad, map_name);
         let num_sectors = input.sectors.len();

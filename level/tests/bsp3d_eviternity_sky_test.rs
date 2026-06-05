@@ -44,7 +44,9 @@ fn test_eviternity_map04_no_sky_ceiling_polygons() {
                         texture,
                         ..
                     } => *texture,
-                    _ => usize::MAX,
+                    SurfaceKind::Vertical {
+                        ..
+                    } => usize::MAX,
                 };
                 violations.push((ss_id, poly.sector_id, tex));
             }
@@ -116,8 +118,7 @@ fn test_eviternity_map04_sky_flat_index_matches() {
     assert!(f_sky1_count > 0, "Should have F_SKY1 sectors");
     assert_eq!(
         f_sky1_count, matching_count,
-        "All F_SKY1 sectors should have ceilingpic == sky_num ({}). {}/{} match.",
-        sky_num, matching_count, f_sky1_count
+        "All F_SKY1 sectors should have ceilingpic == sky_num ({sky_num}). {matching_count}/{f_sky1_count} match."
     );
 }
 
@@ -211,8 +212,7 @@ fn test_eviternity_map04_linedef1581_no_upper_wall() {
 
     assert!(
         upper_walls_for_1581.is_empty(),
-        "Linedef 1581 (both sides F_SKY1) should have NO upper wall, found in subsectors: {:?}",
-        upper_walls_for_1581
+        "Linedef 1581 (both sides F_SKY1) should have NO upper wall, found in subsectors: {upper_walls_for_1581:?}"
     );
 }
 
@@ -258,7 +258,7 @@ fn test_eviternity_map04_no_upper_walls_between_sky_sectors() {
     // Build set of linedefs where both sides have sky ceiling
     let mut both_sky_linedefs = HashSet::new();
     for (i, ld) in map.linedefs.iter().enumerate() {
-        if let Some(ref back) = ld.backsector
+        if let Some(back) = &ld.backsector
             && ld.frontsector.ceilingpic == sky_num
             && back.ceilingpic == sky_num
         {

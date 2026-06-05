@@ -3,7 +3,7 @@ use test_utils::{doom_wad_path, load_map};
 
 #[test]
 fn test_door_vertex_sharing() {
-    use std::collections::HashMap;
+    use std::collections::{BTreeMap, HashMap};
 
     let mut map = load_map(&doom_wad_path(), "E1M1");
 
@@ -14,13 +14,13 @@ fn test_door_vertex_sharing() {
     let sector_25_subsectors = bsp3d.sector_subsectors.get(25).cloned().unwrap_or_default();
     let sector_26_subsectors = bsp3d.sector_subsectors.get(26).cloned().unwrap_or_default();
 
-    println!("Sector 25 subsectors: {:?}", sector_25_subsectors);
-    println!("Sector 26 subsectors: {:?}", sector_26_subsectors);
+    println!("Sector 25 subsectors: {sector_25_subsectors:?}");
+    println!("Sector 26 subsectors: {sector_26_subsectors:?}");
 
     let segments = &map.segments;
     let linedefs = &map.linedefs;
 
-    let mut tracked_linedefs = HashMap::new();
+    let mut tracked_linedefs = BTreeMap::new();
     for (seg_idx, segment) in segments.iter().enumerate() {
         let linedef = &*segment.linedef;
         let linedef_id = linedefs.iter().position(|ld| std::ptr::eq(ld, linedef));
@@ -49,11 +49,11 @@ fn test_door_vertex_sharing() {
         initial_vertex_positions.insert(vertex_idx, bsp3d.vertices[vertex_idx]);
     }
 
-    let mut floor_polygon_vertices = HashMap::new();
+    let mut floor_polygon_vertices = BTreeMap::new();
 
     for &subsector_id in &sector_25_subsectors {
         if let Some(leaf) = bsp3d.get_subsector_leaf(subsector_id) {
-            println!("\nSubsector {} (Sector 25) polygons:", subsector_id);
+            println!("\nSubsector {subsector_id} (Sector 25) polygons:");
             for &floor_poly_idx in &leaf.floor_polygons {
                 if let Some(polygon) = bsp3d.polygons.get(floor_poly_idx) {
                     println!(
@@ -75,7 +75,7 @@ fn test_door_vertex_sharing() {
 
     for &subsector_id in &sector_26_subsectors {
         if let Some(leaf) = bsp3d.get_subsector_leaf(subsector_id) {
-            println!("\nSubsector {} (Sector 26) polygons:", subsector_id);
+            println!("\nSubsector {subsector_id} (Sector 26) polygons:");
             for &floor_poly_idx in &leaf.floor_polygons {
                 if let Some(polygon) = bsp3d.polygons.get(floor_poly_idx) {
                     println!(
@@ -95,7 +95,7 @@ fn test_door_vertex_sharing() {
         }
     }
 
-    let mut wall_polygon_vertices = HashMap::new();
+    let mut wall_polygon_vertices = BTreeMap::new();
     for (&linedef_id, segments) in &tracked_linedefs {
         if [148, 150, 151, 152, 153].contains(&linedef_id) {
             for &(seg_idx, _) in segments {
@@ -114,8 +114,7 @@ fn test_door_vertex_sharing() {
                                 "NOT move"
                             };
                             println!(
-                                "\nLinedef {} walls in subsector {} (should {}):",
-                                linedef_id, subsector_id, behavior
+                                "\nLinedef {linedef_id} walls in subsector {subsector_id} (should {behavior}):"
                             );
                             for &gi in &leaf.polygon_indices {
                                 let polygon = &bsp3d.polygons[gi];
@@ -163,7 +162,7 @@ fn test_door_vertex_sharing() {
 
     println!("Total vertices that moved: {}", moved_vertices.len());
     for (vertex_idx, orig, curr) in &moved_vertices {
-        println!("  Vertex {}: {:?} -> {:?}", vertex_idx, orig, curr);
+        println!("  Vertex {vertex_idx}: {orig:?} -> {curr:?}");
     }
 
     println!("\n=== POLYGON ANALYSIS FOR MOVED VERTICES ===");
@@ -181,14 +180,13 @@ fn test_door_vertex_sharing() {
                     }
                     if has_moved_vertex {
                         println!(
-                            "SECTOR 25 FLOOR POLYGON {} CONTAINS MOVED VERTICES:",
-                            floor_poly_idx
+                            "SECTOR 25 FLOOR POLYGON {floor_poly_idx} CONTAINS MOVED VERTICES:"
                         );
                         for &vertex_idx in &polygon.vertices {
                             if let Some((_, orig, curr)) =
                                 moved_vertices.iter().find(|(idx, ..)| *idx == vertex_idx)
                             {
-                                println!("    Vertex {}: {:?} -> {:?}", vertex_idx, orig, curr);
+                                println!("    Vertex {vertex_idx}: {orig:?} -> {curr:?}");
                             }
                         }
                     }
@@ -210,14 +208,13 @@ fn test_door_vertex_sharing() {
                     }
                     if has_moved_vertex {
                         println!(
-                            "SECTOR 26 FLOOR POLYGON {} CONTAINS MOVED VERTICES:",
-                            floor_poly_idx
+                            "SECTOR 26 FLOOR POLYGON {floor_poly_idx} CONTAINS MOVED VERTICES:"
                         );
                         for &vertex_idx in &polygon.vertices {
                             if let Some((_, orig, curr)) =
                                 moved_vertices.iter().find(|(idx, ..)| *idx == vertex_idx)
                             {
-                                println!("    Vertex {}: {:?} -> {:?}", vertex_idx, orig, curr);
+                                println!("    Vertex {vertex_idx}: {orig:?} -> {curr:?}");
                             }
                         }
                     }
@@ -239,16 +236,14 @@ fn test_door_vertex_sharing() {
                 let current_pos = bsp3d.vertices[vertex_idx];
                 if (original_pos.z - current_pos.z).abs() > 0.001 {
                     println!(
-                        "  FLOOR MOVED: Subsector {} floor polygon {} vertex {} moved from {:?} to {:?}",
-                        subsector_id, floor_poly_idx, vertex_idx, original_pos, current_pos
+                        "  FLOOR MOVED: Subsector {subsector_id} floor polygon {floor_poly_idx} vertex {vertex_idx} moved from {original_pos:?} to {current_pos:?}"
                     );
                     floor_moved = true;
                 }
             }
             if !floor_moved {
                 println!(
-                    "  Floor polygon {} in subsector {} remained stationary",
-                    floor_poly_idx, subsector_id
+                    "  Floor polygon {floor_poly_idx} in subsector {subsector_id} remained stationary"
                 );
             }
         }
@@ -280,15 +275,9 @@ fn test_door_vertex_sharing() {
                 } else {
                     "moved"
                 };
-                println!(
-                    "  Linedef {} wall polygon {} {} correctly",
-                    linedef_id, poly_idx, action
-                );
+                println!("  Linedef {linedef_id} wall polygon {poly_idx} {action} correctly");
                 for (vertex_idx, orig, curr) in moved_vertices {
-                    println!(
-                        "    Vertex {} moved from {:?} to {:?}",
-                        vertex_idx, orig, curr
-                    );
+                    println!("    Vertex {vertex_idx} moved from {orig:?} to {curr:?}");
                 }
             } else if should_move && !wall_moved {
                 let action = if *linedef_id == 148 {
@@ -297,24 +286,18 @@ fn test_door_vertex_sharing() {
                     "moved"
                 };
                 println!(
-                    "  WALL SHOULD MOVE: Linedef {} wall polygon {} should have {} but didn't",
-                    linedef_id, poly_idx, action
+                    "  WALL SHOULD MOVE: Linedef {linedef_id} wall polygon {poly_idx} should have {action} but didn't"
                 );
             } else if !should_move && wall_moved {
                 println!(
-                    "  WALL MOVED: Linedef {} wall polygon {} should be stationary but moved",
-                    linedef_id, poly_idx
+                    "  WALL MOVED: Linedef {linedef_id} wall polygon {poly_idx} should be stationary but moved"
                 );
                 for (vertex_idx, orig, curr) in moved_vertices {
-                    println!(
-                        "    Vertex {} moved from {:?} to {:?}",
-                        vertex_idx, orig, curr
-                    );
+                    println!("    Vertex {vertex_idx} moved from {orig:?} to {curr:?}");
                 }
             } else {
                 println!(
-                    "  Linedef {} wall polygon {} remained stationary (correct)",
-                    linedef_id, poly_idx
+                    "  Linedef {linedef_id} wall polygon {poly_idx} remained stationary (correct)"
                 );
             }
         }
@@ -455,8 +438,8 @@ fn test_e1m1_floor_ceiling_polygon_normals() {
         let ceil_poly = &bsp3d.polygons[leaf.ceiling_polygons[0]];
 
         // Normals.
-        assert_eq!(floor_poly.normal, Vec3::new(0.0, 0.0, 1.0), "ss={}", ssid);
-        assert_eq!(ceil_poly.normal, Vec3::new(0.0, 0.0, -1.0), "ss={}", ssid);
+        assert_eq!(floor_poly.normal, Vec3::new(0.0, 0.0, 1.0), "ss={ssid}");
+        assert_eq!(ceil_poly.normal, Vec3::new(0.0, 0.0, -1.0), "ss={ssid}");
 
         // Both must have at least 3 verts.
         if floor_poly.vertices.len() < 3 {
@@ -481,14 +464,12 @@ fn test_e1m1_floor_ceiling_polygon_normals() {
         let ceil_area = shoelace(ceil_poly, verts);
         if floor_area <= 0.0 {
             failures.push(format!(
-                "ss={}: floor shoelace={:.2} (expected > 0)",
-                ssid, floor_area
+                "ss={ssid}: floor shoelace={floor_area:.2} (expected > 0)"
             ));
         }
         if ceil_area >= 0.0 {
             failures.push(format!(
-                "ss={}: ceiling shoelace={:.2} (expected < 0)",
-                ssid, ceil_area
+                "ss={ssid}: ceiling shoelace={ceil_area:.2} (expected < 0)"
             ));
         }
 
@@ -520,14 +501,13 @@ fn test_e1m1_floor_ceiling_polygon_normals() {
         });
         if !all_found {
             failures.push(format!(
-                "ss={}: floor/ceiling XY mismatch (smaller not subset of larger)\n  floor={:?}\n  ceil={:?}",
-                ssid, floor_xy, ceil_xy
+                "ss={ssid}: floor/ceiling XY mismatch (smaller not subset of larger)\n  floor={floor_xy:?}\n  ceil={ceil_xy:?}"
             ));
         }
     }
 
     for f in &failures {
-        println!("{}", f);
+        println!("{f}");
     }
     assert!(failures.is_empty(), "{} failures", failures.len());
 }
@@ -582,7 +562,7 @@ fn test_e1m1_no_degenerate_polygons() {
     }
 
     for f in &failures {
-        println!("{}", f);
+        println!("{f}");
     }
     assert!(failures.is_empty(), "{} failures", failures.len());
 }

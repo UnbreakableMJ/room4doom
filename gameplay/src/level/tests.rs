@@ -90,7 +90,7 @@ mod map_data_tests {
         // sidedef->midtexture: 1657
         // linedef: 1590
         // side: 1
-        for seg in ext.segments.iter() {
+        for seg in &ext.segments {
             if seg.linedef == 1590 {}
         }
 
@@ -353,7 +353,7 @@ mod map_data_tests {
 
         // Every node child should be either a valid node index or a valid subsector ref
         let num_subsectors = map.subsectors.len();
-        for node in nodes.iter() {
+        for node in nodes {
             for &child in &node.children {
                 if child & IS_SSECTOR_MASK != 0 {
                     let ss_idx = (child & !IS_SSECTOR_MASK) as usize;

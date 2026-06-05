@@ -22,8 +22,7 @@ fn test_e1m3_stair_sectors_have_moving_floors() {
         }
         assert!(
             has_moving_floor,
-            "Sector {} should have moving floor polygons (zero-height lower wall detected)",
-            sid
+            "Sector {sid} should have moving floor polygons (zero-height lower wall detected)"
         );
     }
 }
@@ -54,8 +53,7 @@ fn test_e1m3_stair_sectors_have_lower_walls_between_steps() {
         }
         assert!(
             lower_wall_count > 0,
-            "Sector {} should have at least one lower wall polygon but has none",
-            sid
+            "Sector {sid} should have at least one lower wall polygon but has none"
         );
     }
 }

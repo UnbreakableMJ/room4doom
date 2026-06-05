@@ -65,7 +65,7 @@ pub enum GusMemSize {
     Perfect,
 }
 use std::fs::{File, OpenOptions, create_dir};
-use std::io::{Error as IoError, ErrorKind, Read, Write};
+use std::io::{Error as IoError, ErrorKind, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -143,8 +143,8 @@ impl FromStr for RenderType {
 impl From<RenderType> for render_backend::RenderType {
     fn from(val: RenderType) -> Self {
         match val {
-            RenderType::Software => render_backend::RenderType::Software,
-            RenderType::Software3D => render_backend::RenderType::Software3D,
+            RenderType::Software => Self::Software,
+            RenderType::Software3D => Self::Software3D,
         }
     }
 }
@@ -264,24 +264,26 @@ impl UserConfig {
             }
         };
         let mut buf = String::new();
+        // Read+write handle reused below to write defaults; can't use fs::read_to_string.
+        #[allow(clippy::verbose_file_reads, reason = "handle reused for write-back")]
         if let Ok(read_len) = file.read_to_string(&mut buf) {
             if read_len == 0 {
-                return UserConfig::create_default(&mut file);
+                return Self::create_default(&mut file);
             } else {
-                if let Ok(data) = UserConfig::deserialize_ron(&buf) {
+                if let Ok(data) = Self::deserialize_ron(&buf) {
                     info!(target: LOG_TAG, "Loaded user config file: {path:?}");
                     return data;
                 }
-                warn!("Could not deserialise {:?} recreating config", path);
+                warn!("Could not deserialise {path:?} recreating config");
             }
         }
-        UserConfig::create_default(&mut file)
+        Self::create_default(&mut file)
     }
 
     /// The in-memory default config, with auto-detected IWAD/voxel paths.
     /// Does not touch the filesystem.
     fn default_config() -> Self {
-        UserConfig {
+        Self {
             width: 640,
             height: 480,
             hi_res: true,
@@ -296,10 +298,10 @@ impl UserConfig {
             health_bleed: true,
             mouse_sensitivity: 5,
             invert_y: false,
-            sf2_path: "gm.sf2".to_string(),
+            sf2_path: "gm.sf2".to_owned(),
             voxels_path: find_voxel_pk3(),
             iwad: find_iwad(),
-            ..UserConfig::default()
+            ..Self::default()
         }
     }
 
@@ -324,7 +326,7 @@ impl UserConfig {
         };
         let data = pretty_ron(&self.serialize_ron());
         file.write_all(data.as_bytes())
-            .unwrap_or_else(|err| error!("Could not write config: {}", err));
+            .unwrap_or_else(|err| error!("Could not write config: {err}"));
     }
 
     pub fn to_config_array(&self) -> [i32; ConfigKey::KeyCount as usize] {
@@ -497,7 +499,7 @@ impl UserConfig {
             cli.crt_gamma = Some(self.crt_gamma);
         }
 
-        if let Some(ref path) = cli.voxels {
+        if let Some(path) = &cli.voxels {
             self.voxels_path = path.clone();
             self.voxels = true;
         } else {

@@ -35,9 +35,10 @@ const FINEANGLES: usize = 8192;
 // sector_t *frontsector; // Shared in seg/bsp . c, in segs StoreWallRange +
 // sector_t *backsector;
 
-/// We store most of what is needed for rendering in various functions here to
-/// avoid having to pass too many things in args through multiple function
-/// calls. This is due to the Doom C relying a fair bit on global state.
+/// Render state shared across the BSP traverse.
+///
+/// Holds most of what rendering needs so it isn't threaded through many
+/// function args — the Doom C relied on global state for this.
 ///
 /// `RenderData` will be passed to the sprite drawer/clipper to use `drawsegs`
 ///
@@ -92,6 +93,7 @@ impl Software25D {
     /// - Runs BSP traversal to emit walls and collect sprites
     /// - Draws masked/translucent elements (sprites, mid-textures)
     ///   back-to-front
+    ///
     /// Render the player view into `rend`'s index plane. Returns whether the
     /// caller must resolve the index plane to the surface — always `true` for
     /// the 2.5D renderer (it has no u32-direct debug colour modes).
@@ -144,7 +146,11 @@ impl Software25D {
         true
     }
 
-    pub fn new(fov: f32, width: f32, height: f32, hi_res: bool, debug: bool) -> Software25D {
+    #[allow(
+        clippy::large_stack_arrays,
+        reason = "OG-style fixed vissprite pool; renderer is long-lived, built once"
+    )]
+    pub fn new(fov: f32, width: f32, height: f32, hi_res: bool, debug: bool) -> Self {
         let look_dirs = LookDirs::new(hi_res);
         let (_, _, focal_length_f) = render_common::og_projection(fov, width, height);
         // OG: projection = centerxfrac = half_width (used for scale comparison)
@@ -211,7 +217,7 @@ impl Software25D {
 
         // OG Doom fencepost fix
         let w = width as i32;
-        for v in viewangletox.iter_mut() {
+        for v in &mut viewangletox {
             if *v == -1 {
                 *v = 0;
             } else if *v >= w {
@@ -252,7 +258,7 @@ impl Software25D {
     }
 
     fn clear(&mut self, screen_width: FixedT) {
-        for vis in self.vissprites.iter_mut() {
+        for vis in &mut self.vissprites {
             *vis = unsafe { mem::zeroed::<VisSprite>() };
         }
         self.next_vissprite = 0;
@@ -387,7 +393,7 @@ impl Software25D {
 
     /// R_ClearClipSegs - r_bsp
     fn clear_clip_segs(&mut self, screen_width: FixedT) {
-        for s in self.solidsegs.iter_mut() {
+        for s in &mut self.solidsegs {
             s.first = screen_width;
             s.last = FixedT::MAX;
         }

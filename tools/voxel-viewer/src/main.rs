@@ -46,7 +46,7 @@ impl Camera {
         (pos, look_dir, rt, up)
     }
 
-    fn view_proj(&self, _pos: Vec3, fwd: Vec3, _up: Vec3) -> Mat4 {
+    fn view_proj(_pos: Vec3, fwd: Vec3, _up: Vec3) -> Mat4 {
         // Eye at origin — collection pipeline handles camera translation
         let view = Mat4::look_to_rh(Vec3::ZERO, fwd, Vec3::Z);
         let vfov = 2.0 * (H as f32 * 0.5 / FOV_SCALE).atan();
@@ -84,9 +84,8 @@ impl App {
     fn render(&mut self) {
         #[cfg(feature = "hprof")]
         profile!("render");
-        let pixels = match self.pixels.as_mut() {
-            Some(p) => p,
-            None => return,
+        let Some(pixels) = self.pixels.as_mut() else {
+            return;
         };
 
         let frame = pixels.frame_mut();
@@ -160,14 +159,14 @@ impl App {
         } else {
             #[cfg(feature = "hprof")]
             profile!("slice_render");
-            let view_proj = self.camera.view_proj(cam_pos, fwd, up);
+            let view_proj = Camera::view_proj(cam_pos, fwd, up);
             let half_w = W as f32 * 0.5;
             let half_h = H as f32 * 0.5;
             let identity_map: Vec<usize> = (0..256).collect();
             let colourmaps: Vec<&[usize]> = vec![&identity_map; 48];
             self.rasterizer.depth_buffer_mut().reset();
             let frame_u32: &mut [u32] = unsafe {
-                std::slice::from_raw_parts_mut(frame.as_mut_ptr() as *mut u32, (W * H) as usize)
+                std::slice::from_raw_parts_mut(frame.as_mut_ptr().cast::<u32>(), (W * H) as usize)
             };
             // Voxel texels render into an 8-bit palette-index plane, resolved to
             // `frame_u32` below; the wireframe overlay then draws true-colour.
@@ -288,9 +287,9 @@ impl App {
 
             // Wireframe overlay: w=1 all quads, w=2 collected (backface-culled) only
             if self.wireframe > 0 {
+                let axis_colors: [u32; 3] = [0xFF0000FF, 0xFF00FF00, 0xFFFF0000];
                 if self.wireframe == 2 {
                     // Draw outlines of collected slices (same as rendered), coloured by axis
-                    let axis_colors: [u32; 3] = [0xFF0000FF, 0xFF00FF00, 0xFFFF0000];
                     for vq in &voxel_slices {
                         let color = axis_colors[vq.axis as usize];
                         let w = vq.width as f32;
@@ -322,7 +321,6 @@ impl App {
                     }
                 } else {
                     // Draw all non-empty quads, coloured per axis
-                    let axis_colors: [u32; 3] = [0xFF0000FF, 0xFF00FF00, 0xFFFF0000];
                     for (axis, color) in axis_colors.iter().enumerate() {
                         for quad in &self.slices.slices[axis] {
                             for &d in &[quad.depth, quad.depth + 1.0] {
@@ -580,7 +578,7 @@ impl ApplicationHandler for App {
                 Key::Named(NamedKey::ArrowRight) => self.camera.pan_x += 1.0,
                 Key::Named(NamedKey::ArrowUp) => self.camera.pan_y += 1.0,
                 Key::Named(NamedKey::ArrowDown) => self.camera.pan_y -= 1.0,
-                Key::Character(ref c) => match c.as_str() {
+                Key::Character(c) => match c.as_str() {
                     "=" | "+" => self.camera.zoom = (self.camera.zoom - 0.1).max(0.1),
                     "-" => self.camera.zoom += 0.1,
                     "r" => self.camera.auto_rotate = !self.camera.auto_rotate,
@@ -614,7 +612,7 @@ fn main() {
         std::process::exit(1);
     });
     let mut model = VoxelModel::load(&kvx_data).unwrap_or_else(|e| {
-        eprintln!("Failed to parse KVX: {}", e);
+        eprintln!("Failed to parse KVX: {e}");
         std::process::exit(1);
     });
 
@@ -626,7 +624,7 @@ fn main() {
         .and_then(|p| std::fs::read(p).ok());
 
     let mut palette = [(128u8, 128u8, 128u8); 256];
-    if let Some(ref data) = ext_pal {
+    if let Some(data) = &ext_pal {
         if data.len() >= 768 {
             model.remap_to_doom_palette(data);
             for i in 0..256 {
@@ -634,7 +632,7 @@ fn main() {
             }
             eprintln!("Using external Doom palette (remapped KVX indices)");
         }
-    } else if let Some(ref kvx_pal) = model.palette {
+    } else if let Some(kvx_pal) = &model.palette {
         for i in 0..256.min(kvx_pal.len() / 3) {
             let (r, g, b) = (kvx_pal[i * 3], kvx_pal[i * 3 + 1], kvx_pal[i * 3 + 2]);
             palette[i] = (

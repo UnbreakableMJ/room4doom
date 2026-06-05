@@ -75,7 +75,7 @@ pub fn point_on_divline_side(x: FixedT, y: FixedT, line: &DivLineFixed) -> usize
     let pdx = dx.to_fixed_raw();
     let pdy = dy.to_fixed_raw();
     if (ldy ^ ldx ^ pdx ^ pdy) < 0 {
-        return if (ldy ^ pdx) < 0 { 1 } else { 0 };
+        return usize::from((ldy ^ pdx) < 0);
     }
 
     // OG: left = FixedMul(line->dy >> 8, dx >> 8)
@@ -84,7 +84,7 @@ pub fn point_on_divline_side(x: FixedT, y: FixedT, line: &DivLineFixed) -> usize
     {
         let left = ((line.dy.to_fixed_raw() >> 8) as i64 * (dx.to_fixed_raw() >> 8) as i64) >> 16;
         let right = ((dy.to_fixed_raw() >> 8) as i64 * (line.dx.to_fixed_raw() >> 8) as i64) >> 16;
-        if right < left { 0 } else { 1 }
+        usize::from(right >= left)
     }
     #[cfg(any(feature = "fixed64", feature = "fixed64hd"))]
     {

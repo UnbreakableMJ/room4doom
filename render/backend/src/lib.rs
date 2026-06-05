@@ -232,7 +232,7 @@ impl GameRenderer for RenderTarget {
     fn with_frame(&mut self, body: impl FnOnce(&mut FrameCtx<'_>)) {
         // Split borrows so the display owns the surface while the closure holds
         // the renderer + index + bleed + wipe (disjoint fields of self).
-        let RenderTarget {
+        let Self {
             renderer,
             display,
             size,
@@ -257,10 +257,12 @@ impl GameRenderer for RenderTarget {
     }
 }
 
-/// Per-frame draw context: the acquired display surface plus the persistent
-/// index plane / bleed / wipe (borrowed from `RenderTarget`). Implements both
-/// [`Frame`] (frame lifecycle) and [`render_common::DrawBuffer`] (the scene
-/// rasterizes into the index plane, UI draws onto the surface).
+/// Per-frame draw context.
+///
+/// The acquired display surface plus the persistent index plane / bleed / wipe
+/// (borrowed from `RenderTarget`). Implements both [`Frame`] (frame lifecycle)
+/// and [`render_common::DrawBuffer`] (the scene rasterizes into the index
+/// plane, UI draws onto the surface).
 pub struct FrameCtx<'a> {
     renderer: &'a mut Renderer,
     size: &'a BufferSize,
@@ -371,7 +373,7 @@ struct SurfaceBuf<'b> {
     bleed: &'b mut HealthBleed,
 }
 
-impl<'a> FrameCtx<'a> {
+impl FrameCtx<'_> {
     /// Split into the renderer and a `SurfaceBuf` over the remaining fields, so
     /// the renderer can draw into the surface/index without a borrow conflict.
     #[inline]

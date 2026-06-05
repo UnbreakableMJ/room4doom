@@ -47,7 +47,7 @@ impl MapObject {
     pub(crate) fn p_take_damage(
         &mut self,
         inflictor: Option<(FixedT, FixedT, FixedT)>,
-        mut source: Option<&mut MapObject>,
+        mut source: Option<&mut Self>,
         mut damage: i32,
     ) {
         if !self.flags.contains(MapObjFlag::Shootable) {
@@ -189,7 +189,7 @@ impl MapObject {
     }
 
     /// Doom function name `P_KillMobj`
-    fn kill(&mut self, mut source: Option<&mut MapObject>) {
+    fn kill(&mut self, mut source: Option<&mut Self>) {
         self.flags
             .remove(MapObjFlag::Shootable | MapObjFlag::Float | MapObjFlag::Skullfly);
 
@@ -255,8 +255,7 @@ impl MapObject {
         };
 
         unsafe {
-            let mobj =
-                MapObject::spawn_map_object(self.x, self.y, self.floorz, item, &mut *self.level);
+            let mobj = Self::spawn_map_object(self.x, self.y, self.floorz, item, &mut *self.level);
             (*mobj).flags.insert(MapObjFlag::Dropped);
         }
     }
@@ -264,7 +263,7 @@ impl MapObject {
     /// Interact with special pickups
     ///
     /// Doom function name `P_TouchSpecialThing`
-    pub(crate) fn touch_special(&mut self, special: &mut MapObject) {
+    pub(crate) fn touch_special(&mut self, special: &mut Self) {
         let delta = special.z - self.z;
 
         if delta > self.height || delta < -8 {

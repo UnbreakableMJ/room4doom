@@ -165,9 +165,7 @@ fn test_clip_against_single_plane() {
         let distance = left_plane.dot(v);
         assert!(
             distance >= -0.001,
-            "Vertex {} failed plane test: {}",
-            i,
-            distance
+            "Vertex {i} failed plane test: {distance}"
         );
     }
 }

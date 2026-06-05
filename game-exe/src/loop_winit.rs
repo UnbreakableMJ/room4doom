@@ -11,11 +11,11 @@ const NANOS_PER_MILLIHERTZ: u64 = 1_000_000_000_000;
 use doom_ui::{Finale, GameMenu, Intermission, Messages, Statusbar};
 use gamestate::Game;
 use gamestate::subsystems::GameSubsystem;
-use gamestate_traits::{ConfigTraits, SubsystemTrait};
+use gamestate_traits::{ConfigTraits as _, SubsystemTrait as _};
 use input::InputState;
 use log::{info, warn};
 use render_backend::{DisplayBackend, RenderTarget};
-use render_common::{GameRenderer, STBAR_HEIGHT};
+use render_common::{GameRenderer as _, STBAR_HEIGHT};
 use software3d::DebugDrawOptions;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId, ElementState, WindowEvent};
@@ -247,7 +247,7 @@ impl ApplicationHandler for DoomApp {
             .events
             .set_mouse_scale((self.user_config.mouse_sensitivity, 1));
         self.input.events.set_invert_y(self.user_config.invert_y);
-        if let Some(ref vm) = self.voxel_manager {
+        if let Some(vm) = &self.voxel_manager {
             render_backend.set_voxel_manager(vm.clone());
         }
         let mut menu = GameMenu::new(
@@ -305,7 +305,7 @@ impl ApplicationHandler for DoomApp {
                         ElementState::Released => {
                             self.input.events.unset_kb(kc);
                         }
-                        _ => {}
+                        ElementState::Pressed => {}
                     }
                 }
             }
@@ -336,7 +336,7 @@ impl ApplicationHandler for DoomApp {
                         rt.set_statusbar_height(STBAR_HEIGHT);
                     }
                     if self.user_config.voxels
-                        && let Some(ref vm) = self.voxel_manager
+                        && let Some(vm) = &self.voxel_manager
                     {
                         rt.set_voxel_manager(vm.clone());
                     }
@@ -413,7 +413,7 @@ impl ApplicationHandler for DoomApp {
                                     self.game.pic_data.pwad_sprite_overrides(),
                                 );
                             }
-                            if let Some(ref vm) = self.voxel_manager
+                            if let Some(vm) = &self.voxel_manager
                                 && let Some(rt) = self.render_backend.as_mut()
                             {
                                 rt.set_voxel_manager(vm.clone());
@@ -472,7 +472,7 @@ impl ApplicationHandler for DoomApp {
                             new_rt.set_statusbar_height(STBAR_HEIGHT);
                         }
                         if self.user_config.voxels
-                            && let Some(ref vm) = self.voxel_manager
+                            && let Some(vm) = &self.voxel_manager
                         {
                             new_rt.set_voxel_manager(vm.clone());
                         }

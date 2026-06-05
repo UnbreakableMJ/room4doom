@@ -7,7 +7,9 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use math::{Angle, Bam, FixedT};
 use pic_data::PicData;
-use render_common::{BufferSize, DrawBuffer, HealthBleed, RenderPspDef, RenderView, ScreenEffect};
+use render_common::{
+    BufferSize, DrawBuffer, HealthBleed, RenderPspDef, RenderView, ScreenEffect as _,
+};
 use software3d::{DebugDrawOptions, Software3D};
 use std::path::Path;
 use wad::WadData;

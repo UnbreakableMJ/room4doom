@@ -46,7 +46,7 @@ pub use level::env_query::{
 };
 
 /// OG `P_ChangeSector` -- iterate blockmap cells in sector's bounding box.
-fn change_sector(sector: &Sector, crunch: bool, level: &mut LevelState) -> bool {
+fn change_sector(sector: &Sector, crunch: bool, level: &LevelState) -> bool {
     let mut no_fit = false;
 
     let bm = level.level_data.blockmap();
@@ -103,8 +103,8 @@ pub fn move_plane(
                         "move_plane: floor: down: {} to {} at speed {}",
                         sector.floorheight, dest, speed
                     );
+                    let last_pos = sector.floorheight;
                     if sector.floorheight - speed < dest {
-                        let last_pos = sector.floorheight;
                         sector.floorheight = dest;
                         bsp3d.move_surface(
                             sector_num,
@@ -126,7 +126,6 @@ pub fn move_plane(
                         return PlaneResult::PastDest;
                     } else {
                         // COULD GET CRUSHED
-                        let last_pos = sector.floorheight;
                         sector.floorheight -= speed;
                         bsp3d.move_surface(
                             sector_num,
@@ -154,8 +153,8 @@ pub fn move_plane(
                         "move_plane: floor: up: {} to {} at speed {}",
                         sector.floorheight, dest, speed
                     );
+                    let last_pos = sector.floorheight;
                     if sector.floorheight + speed > dest {
-                        let last_pos = sector.floorheight;
                         sector.floorheight = dest;
                         bsp3d.move_surface(
                             sector_num,
@@ -176,7 +175,6 @@ pub fn move_plane(
                         }
                         return PlaneResult::PastDest;
                     } else {
-                        let last_pos = sector.floorheight;
                         sector.floorheight += speed;
                         bsp3d.move_surface(
                             sector_num,
@@ -200,7 +198,7 @@ pub fn move_plane(
                         }
                     }
                 }
-                _ => error!("Invalid floor direction: {}", direction),
+                _ => error!("Invalid floor direction: {direction}"),
             }
         }
         1 => {
@@ -212,8 +210,8 @@ pub fn move_plane(
                         "move_plane: ceiling: down: {} to {} at speed {}",
                         sector.ceilingheight, dest, speed
                     );
+                    let last_pos = sector.ceilingheight;
                     if sector.ceilingheight - speed < dest {
-                        let last_pos = sector.ceilingheight;
                         sector.ceilingheight = dest;
                         bsp3d.move_surface(
                             sector_num,
@@ -235,7 +233,6 @@ pub fn move_plane(
                         return PlaneResult::PastDest;
                     } else {
                         // COULD GET CRUSHED
-                        let last_pos = sector.ceilingheight;
                         sector.ceilingheight -= speed;
                         bsp3d.move_surface(
                             sector_num,
@@ -299,10 +296,10 @@ pub fn move_plane(
                         change_sector(&sector, crush, level);
                     }
                 }
-                _ => error!("Invalid ceiling direction: {}", direction),
+                _ => error!("Invalid ceiling direction: {direction}"),
             }
         }
-        _ => error!("Invalid floor_or_ceiling: {}", floor_or_ceiling),
+        _ => error!("Invalid floor_or_ceiling: {floor_or_ceiling}"),
     }
 
     PlaneResult::Ok
@@ -347,9 +344,7 @@ pub fn cross_special_line(side: usize, mut line: MapPtr<LineDef>, thing: &mut Ma
         }
     }
 
-    if thing.level.is_null() {
-        panic!("Thing had a bad level pointer");
-    }
+    assert!(!thing.level.is_null(), "Thing had a bad level pointer");
     let level: &mut LevelState = unsafe { &mut *thing.level };
 
     // BOOM generalized linedef types
@@ -697,10 +692,8 @@ pub fn cross_special_line(side: usize, mut line: MapPtr<LineDef>, thing: &mut Ma
             if thing.player().is_none() => {
                 teleport(line.clone(), side, thing, level);
             }
-        114 | 103 => {
-            // Ignore. It's a switch
-        }
         _ => {
+            // Ignore 114 | 103 . It's a switch
             //warn!("Invalid or unimplemented line special: {}", line.special);
         }
     }
@@ -712,9 +705,7 @@ pub fn cross_special_line(side: usize, mut line: MapPtr<LineDef>, thing: &mut Ma
 pub fn shoot_special_line(line: MapPtr<LineDef>, thing: &mut MapObject) {
     let mut ok = false;
 
-    if thing.level.is_null() {
-        panic!("Thing had a bad level pointer");
-    }
+    assert!(!thing.level.is_null(), "Thing had a bad level pointer");
     let level: &mut LevelState = unsafe { &mut *thing.level };
 
     if thing.player().is_none() {
@@ -869,12 +860,12 @@ pub fn update_specials(level: &mut LevelState, pic_data: &mut PicData) {
     }
 
     // Flats and wall texture animations (switching between series)
-    for anim in level.animations.iter_mut() {
+    for anim in &mut level.animations {
         anim.update(pic_data, level.level_time as usize);
     }
 
     // Animate switches
-    for b in level.button_list.iter_mut() {
+    for b in &mut level.button_list {
         if b.timer != 0 {
             b.timer -= 1;
             if b.timer == 0 {
@@ -915,7 +906,7 @@ pub fn update_specials(level: &mut LevelState, pic_data: &mut PicData) {
             }
         }
     }
-    for line in level.line_special_list.iter_mut() {
+    for line in &mut level.line_special_list {
         line.front_sidedef.textureoffset += 1;
         if line.front_sidedef.textureoffset == FixedT::MAX {
             line.front_sidedef.textureoffset = FixedT::ZERO;

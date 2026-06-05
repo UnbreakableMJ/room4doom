@@ -111,7 +111,7 @@ impl Trigger {
     pub fn is_repeatable(self) -> bool {
         matches!(
             self,
-            Trigger::WalkMany | Trigger::SwitchMany | Trigger::GunMany | Trigger::PushMany
+            Self::WalkMany | Self::SwitchMany | Self::GunMany | Self::PushMany
         )
     }
 }
@@ -137,13 +137,13 @@ impl Category {
     const fn ext_bits(self) -> u32 {
         self as u32
     }
-    fn from_ext_bits(v: u32) -> Option<Category> {
+    fn from_ext_bits(v: u32) -> Option<Self> {
         match v & 0x7 {
-            0 => Some(Category::Floor),
-            1 => Some(Category::Ceiling),
-            2 => Some(Category::Door),
-            3 => Some(Category::Lift),
-            4 => Some(Category::Stairs),
+            0 => Some(Self::Floor),
+            1 => Some(Self::Ceiling),
+            2 => Some(Self::Door),
+            3 => Some(Self::Lift),
+            4 => Some(Self::Stairs),
             _ => None,
         }
     }
@@ -323,6 +323,10 @@ fn decode_floor_kind(v: u32) -> u8 {
     let fast = speed >= SPEED_FAST;
     if dir == 0 {
         // down
+        #[allow(
+            clippy::match_same_arms,
+            reason = "explicit bit-field decode table; named arms document the mapping"
+        )]
         match (target, change) {
             (FTO_LNF, CHG_TXT) => FK_LOWER_CHANGE,
             (FTO_LNF, _) => FK_LOWEST,
@@ -335,6 +339,10 @@ fn decode_floor_kind(v: u32) -> u8 {
         if crush == 1 {
             return FK_RAISE_CRUSH;
         }
+        #[allow(
+            clippy::match_same_arms,
+            reason = "explicit bit-field decode table; named arms document the mapping"
+        )]
         match (target, change, fast) {
             (FTO_LNC, ..) => FK_RAISE,
             (FBY_ST, ..) => FK_TO_TEXTURE,
@@ -370,6 +378,10 @@ fn decode_door_kind(v: u32) -> u8 {
     let speed = field(v, DOOR_SPEED_SHIFT, 0x3);
     let kind = field(v, DOOR_KIND_SHIFT, 0x3);
     let fast = speed >= SPEED_FAST;
+    #[allow(
+        clippy::match_same_arms,
+        reason = "explicit bit-field decode table; named arms document the mapping"
+    )]
     match (kind, fast) {
         (DK_ODC, false) => DK_NORMAL,
         (DK_ODC, true) => DK_BLAZE_RAISE,
@@ -478,6 +490,10 @@ fn encode_table(special: u32) -> Option<u32> {
     let s = GEN_STAIRS_BASE;
     let cr = GEN_CRUSHER_BASE;
 
+    #[allow(
+        clippy::match_same_arms,
+        reason = "one arm per vanilla line-special number; distinct keys may share an encoding"
+    )]
     let v = match special {
         // ============ FLOORS (BOOM-exact) ============
         // LowerFloor: down -> highest neighbour floor.

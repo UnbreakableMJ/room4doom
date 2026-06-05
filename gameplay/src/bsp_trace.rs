@@ -47,7 +47,7 @@ pub fn point_on_line_side(x: FixedT, y: FixedT, line: &LineDef) -> usize {
         let dy = y.to_fixed_raw().wrapping_sub(v1y.to_fixed_raw());
         let left = ((ldy.to_fixed_raw() >> 16) as i64 * dx as i64) >> 16;
         let right = (dy as i64 * (ldx.to_fixed_raw() >> 16) as i64) >> 16;
-        if right < left { 0 } else { 1 }
+        usize::from(right >= left)
     }
     #[cfg(any(feature = "fixed64", feature = "fixed64hd"))]
     {
@@ -375,10 +375,10 @@ impl PortalZ {
         let front = &line.frontsector;
         let back = unsafe { line.backsector.as_ref().unwrap_unchecked() };
 
-        let front_ceil: FixedT = FixedT::from_fixed(front.ceilingheight.to_fixed_raw());
-        let back_ceil: FixedT = FixedT::from_fixed(back.ceilingheight.to_fixed_raw());
-        let front_floor: FixedT = FixedT::from_fixed(front.floorheight.to_fixed_raw());
-        let back_floor: FixedT = FixedT::from_fixed(back.floorheight.to_fixed_raw());
+        let front_ceil = FixedT::from_fixed(front.ceilingheight.to_fixed_raw());
+        let back_ceil = FixedT::from_fixed(back.ceilingheight.to_fixed_raw());
+        let front_floor = FixedT::from_fixed(front.floorheight.to_fixed_raw());
+        let back_floor = FixedT::from_fixed(back.floorheight.to_fixed_raw());
 
         let top_z = if front_ceil < back_ceil {
             front_ceil
@@ -432,10 +432,7 @@ pub fn traverse_intercepts(
             return true;
         }
 
-        let idx = match nearest {
-            Some(idx) => idx,
-            None => return true,
-        };
+        let Some(idx) = nearest else { return true };
 
         if !trav(&mut intercepts[idx]) {
             return false;

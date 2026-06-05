@@ -28,7 +28,7 @@ impl Software3D {
         wall_tex: Option<usize>,
         brightness: usize,
         bounds: (Vec2, Vec2),
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
         #[cfg(feature = "hprof")]
@@ -38,16 +38,13 @@ impl Software3D {
             &self.rasterizer.screen_vertices_buffer[..self.rasterizer.screen_vertices_len],
         );
 
-        let interpolator = match TriangleInterpolator::new(
+        let Some(interpolator) = TriangleInterpolator::new(
             screen_poly.0,
             &self.rasterizer.tex_coords_buffer[..self.rasterizer.tex_coords_len],
             &self.rasterizer.inv_w_buffer[..self.rasterizer.inv_w_len],
-        ) {
-            Some(interpolator) => interpolator,
-            None => {
-                self.stats.polygons_early_culled += 1;
-                return;
-            }
+        ) else {
+            self.stats.polygons_early_culled += 1;
+            return;
         };
 
         // Cache frequently used values
@@ -231,18 +228,16 @@ impl Software3D {
                                 x += 1;
                                 continue;
                             }
-                            if is_translucent {
-                                // TODO(index-fb): re-express translucency as an
-                                // index-domain effect (OG-style). For now write
-                                // the index opaque, no depth — geometry behind
-                                // is overwritten.
-                                buf[y * buf_pitch + x] = color as u8;
-                            } else {
+                            // TODO(index-fb): re-express translucency as an
+                            // index-domain effect. For now translucent writes the
+                            // index opaque with no depth, so geometry behind is
+                            // overwritten.
+                            if !is_translucent {
                                 self.rasterizer
                                     .depth_buffer
                                     .set_depth_unchecked(x, y, edge_inv_w);
-                                buf[y * buf_pitch + x] = color as u8;
                             }
+                            buf[y * buf_pitch + x] = color as u8;
                         } else {
                             // Depth test before UV — avoids the perspective divide on misses
                             if !self
@@ -287,19 +282,18 @@ impl Software3D {
     pub(crate) fn draw_sprite_polygon(
         &mut self,
         quad: &crate::scene::sprites::SpriteQuad,
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
-        let setup = match self.sprite_setup(quad, pic_data) {
-            Some(s) => s,
-            None => return,
+        let Some(setup) = self.sprite_setup(quad, pic_data) else {
+            return;
         };
+
         let patch = pic_data.sprite_patch(quad.patch_index);
 
         for y in setup.y_start..=setup.y_end {
-            let span = match self.sprite_scanline(&setup, y) {
-                Some(s) => s,
-                None => continue,
+            let Some(span) = Self::sprite_scanline(&setup, y) else {
+                continue;
             };
 
             let mut edge_inv_w = span.edge_inv_w;
@@ -353,12 +347,11 @@ impl Software3D {
     pub(crate) fn draw_sprite_fuzz(
         &mut self,
         quad: &crate::scene::sprites::SpriteQuad,
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
-        let setup = match self.sprite_setup(quad, pic_data) {
-            Some(s) => s,
-            None => return,
+        let Some(setup) = self.sprite_setup(quad, pic_data) else {
+            return;
         };
         let patch = pic_data.sprite_patch(quad.patch_index);
         let colourmap6 = pic_data.colourmap(6);
@@ -366,9 +359,8 @@ impl Software3D {
         let h_clamp = setup.height_f32 as i32 - 1;
 
         for y in setup.y_start..=setup.y_end {
-            let span = match self.sprite_scanline(&setup, y) {
-                Some(s) => s,
-                None => continue,
+            let Some(span) = Self::sprite_scanline(&setup, y) else {
+                continue;
             };
 
             let mut edge_inv_w = span.edge_inv_w;
@@ -465,7 +457,7 @@ impl Software3D {
     }
 
     /// Compute scanline span for a given Y in a sprite polygon.
-    fn sprite_scanline(&self, setup: &SpriteSetup, y: usize) -> Option<SpriteScanline> {
+    fn sprite_scanline(setup: &SpriteSetup, y: usize) -> Option<SpriteScanline> {
         let y_f = y as f32;
         let mut x0 = f32::INFINITY;
         let mut x1 = f32::NEG_INFINITY;

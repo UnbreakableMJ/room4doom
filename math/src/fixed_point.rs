@@ -393,7 +393,7 @@ impl Sub<FixedT> for i32 {
     type Output = FixedT;
     #[inline]
     fn sub(self, rhs: FixedT) -> FixedT {
-        FixedT((Inner::from(self) << FRACBITS).wrapping_sub(rhs.0))
+        FixedT((self << FRACBITS).wrapping_sub(rhs.0))
     }
 }
 
@@ -405,7 +405,7 @@ impl Div<FixedT> for i32 {
     type Output = FixedT;
     #[inline]
     fn div(self, rhs: FixedT) -> FixedT {
-        FixedT(Inner::from(self) << FRACBITS).fixed_div(rhs)
+        FixedT(self << FRACBITS).fixed_div(rhs)
     }
 }
 
@@ -439,21 +439,21 @@ impl From<f32> for FixedT {
 
 impl From<FixedT> for f32 {
     #[inline]
-    fn from(v: FixedT) -> f32 {
+    fn from(v: FixedT) -> Self {
         v.to_f32()
     }
 }
 
 impl From<FixedT> for i32 {
     #[inline]
-    fn from(v: FixedT) -> i32 {
+    fn from(v: FixedT) -> Self {
         v.to_i32()
     }
 }
 
 impl From<FixedT> for f64 {
     #[inline]
-    fn from(v: FixedT) -> f64 {
+    fn from(v: FixedT) -> Self {
         v.to_f64()
     }
 }
@@ -472,9 +472,11 @@ impl fmt::Display for FixedT {
 }
 
 #[inline]
-/// OG Doom `P_AproxDistance` — cheap distance estimate. The subtractive form
-/// (`a + b - (min >> 1)`) is exact to OG: `ceil` rounding on the halved term
-/// differs from `min.shr(1) + max` by one unit when the smaller delta is odd.
+/// OG Doom `P_AproxDistance` — cheap distance estimate.
+///
+/// The subtractive form (`a + b - (min >> 1)`) is exact to OG: `ceil` rounding
+/// on the halved term differs from `min.shr(1) + max` by one unit when the
+/// smaller delta is odd.
 pub fn p_aprox_distance(dx: FixedT, dy: FixedT) -> FixedT {
     let dx = dx.doom_abs();
     let dy = dy.doom_abs();

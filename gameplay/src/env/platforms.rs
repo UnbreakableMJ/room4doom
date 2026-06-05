@@ -7,7 +7,7 @@ use std::ptr::null_mut;
 
 use sound_common::SfxName;
 
-use crate::SectorExt;
+use crate::SectorExt as _;
 use crate::doom_def::TICRATE;
 use crate::env::specials::{
     PlaneResult, find_highest_floor_surrounding, find_lowest_floor_surrounding,
@@ -38,10 +38,10 @@ impl TryFrom<u8> for PlatStatus {
 
     fn try_from(v: u8) -> Result<Self, u8> {
         match v {
-            0 => Ok(PlatStatus::Up),
-            1 => Ok(PlatStatus::Down),
-            2 => Ok(PlatStatus::Waiting),
-            3 => Ok(PlatStatus::InStasis),
+            0 => Ok(Self::Up),
+            1 => Ok(Self::Down),
+            2 => Ok(Self::Waiting),
+            3 => Ok(Self::InStasis),
             _ => Err(v),
         }
     }
@@ -236,19 +236,16 @@ impl Think for Platform {
                     start_sector_sound(line, SfxName::Pstop, &level.snd_command);
 
                     match platform.kind {
-                        PlatKind::BlazeDWUS | PlatKind::DownWaitUpStay => {
+                        PlatKind::BlazeDWUS
+                        | PlatKind::DownWaitUpStay
+                        | PlatKind::RaiseAndChange
+                        | PlatKind::RaiseToNearestAndChange => {
                             platform.sector.specialdata = None; // TODO: remove when tracking active?
                             unsafe {
                                 level.remove_active_platform(platform);
                             }
                         }
-                        PlatKind::RaiseAndChange | PlatKind::RaiseToNearestAndChange => {
-                            platform.sector.specialdata = None; // TODO: remove when tracking active?
-                            unsafe {
-                                level.remove_active_platform(platform);
-                            }
-                        }
-                        _ => {}
+                        PlatKind::PerpetualRaise => {}
                     }
                 }
             }

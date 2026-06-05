@@ -27,7 +27,7 @@ impl Finale {
 
         let lump = wad.get_lump("FLOOR4_8").unwrap();
         let bg_flat = WadFlat {
-            name: "FLOOR4_8".to_string(),
+            name: "FLOOR4_8".to_owned(),
             data: lump.data.clone(),
         };
 
@@ -118,11 +118,11 @@ impl SubsystemTrait for Finale {
                 }
                 _ => {}
             }
-        };
+        }
 
         let lump = game.get_wad_data().get_lump(name).unwrap();
         self.bg_flat = WadFlat {
-            name: name.to_string(),
+            name: name.to_owned(),
             data: lump.data.clone(),
         };
     }

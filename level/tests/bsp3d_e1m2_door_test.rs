@@ -10,7 +10,7 @@ fn test_e1m2_sector129_door_ceiling_moves() {
     let mut map = load_map(&doom_wad_path(), "E1M2");
 
     let bsp3d = &mut map.bsp_3d;
-    let initial_positions: Vec<_> = bsp3d.vertices.to_vec();
+    let initial_positions: Vec<_> = bsp3d.vertices.clone();
 
     // Move sector 129 ceiling from 0 to 128
     bsp3d.move_surface(129, MovementType::Ceiling, 128.0, 0);
@@ -98,7 +98,6 @@ fn test_e1m2_all_mover_vertex_sharing() {
 
     assert!(
         unshared.is_empty(),
-        "Sector 129 ceiling mover: upper wall bottom vertex indices {:?} not shared with ceiling polygons",
-        unshared
+        "Sector 129 ceiling mover: upper wall bottom vertex indices {unshared:?} not shared with ceiling polygons"
     );
 }

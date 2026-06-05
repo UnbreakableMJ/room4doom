@@ -60,7 +60,7 @@ impl Drop for ThinkerAlloc {
             }
             let size = self.capacity * size_of::<Thinker>();
             let layout = Layout::from_size_align_unchecked(size, align_of::<Thinker>());
-            dealloc(self.buf_ptr as *mut _, layout);
+            dealloc(self.buf_ptr.cast(), layout);
         }
     }
 }
@@ -78,7 +78,7 @@ impl ThinkerAlloc {
         unsafe {
             let size = capacity * size_of::<Thinker>();
             let layout = Layout::from_size_align_unchecked(size, align_of::<Thinker>());
-            let buf_ptr = alloc(layout) as *mut Thinker;
+            let buf_ptr = alloc(layout).cast::<Thinker>();
 
             // Need to initialise everything to a blank slate
             for n in 0..capacity {
@@ -88,7 +88,7 @@ impl ThinkerAlloc {
                     data: ThinkerData::Free,
                     func: Thinker::placeholder,
                 };
-                buf_ptr.add(n).write(blank)
+                buf_ptr.add(n).write(blank);
             }
 
             Self {
@@ -203,7 +203,7 @@ impl ThinkerAlloc {
     }
 
     unsafe fn drop_item(&mut self, idx: usize) {
-        debug_assert!(idx < self.capacity);
+        debug_assert!(idx < self.capacity, "idx out of bounds");
         let ptr = self.ptr_for_idx(idx);
         if std::mem::needs_drop::<Thinker>() {
             unsafe {
@@ -256,7 +256,7 @@ impl ThinkerAlloc {
         }
 
         let root_ptr = self.find_first_free(false)?;
-        trace!("Pushing: {:?}", root_ptr);
+        trace!("Pushing: {root_ptr:?}");
         match &thinker.data {
             ThinkerData::MapObject(mobj) => {
                 trace!("Adding Thinker of type {:?}", mobj.kind);
@@ -392,7 +392,7 @@ impl ThinkerAlloc {
     /// Removes the entry at index. Sets both func + object to None values to
     /// indicate the slot is "empty".
     pub(crate) fn remove(&mut self, thinker: &mut Thinker) {
-        debug!("Removing Thinker: {:?}", thinker);
+        debug!("Removing Thinker: {thinker:?}");
         unsafe {
             if ptr::eq(thinker, self.head) {
                 self.head = thinker.next;
@@ -480,8 +480,8 @@ impl Debug for ThinkerData {
 /// of its neighbours and more, without having to pass in a ref to the Thinker
 /// container, or iterate over possible blank spots in memory.
 pub struct Thinker {
-    prev: *mut Thinker,
-    next: *mut Thinker,
+    prev: *mut Self,
+    next: *mut Self,
     data: ThinkerData,
     func: fn(&mut Self, &mut LevelState) -> bool,
 }
@@ -496,17 +496,17 @@ impl Thinker {
     }
 
     /// Cast an erased `*mut Thinker` back to `&mut Thinker`.
-    pub unsafe fn from_erased<'a>(ptr: *mut Thinker) -> &'a mut Thinker {
+    pub unsafe fn from_erased<'a>(ptr: *mut Self) -> &'a mut Self {
         unsafe { &mut *ptr }
     }
 
     /// Immutable variant of [`from_erased`].
-    pub unsafe fn from_erased_ref<'a>(ptr: *mut Thinker) -> &'a Thinker {
+    pub unsafe fn from_erased_ref<'a>(ptr: *mut Self) -> &'a Self {
         unsafe { &*ptr }
     }
 
-    pub fn set_action(&mut self, func: fn(&mut Thinker, &mut LevelState) -> bool) {
-        self.func = func
+    pub fn set_action(&mut self, func: fn(&mut Self, &mut LevelState) -> bool) {
+        self.func = func;
     }
 
     pub fn set_obj_thinker_ptr(&mut self) {
@@ -538,7 +538,7 @@ impl Thinker {
     }
 
     /// Empty function purely for ThinkerAlloc init
-    fn placeholder(_: &mut Thinker, _: &mut LevelState) -> bool {
+    fn placeholder(_: &mut Self, _: &mut LevelState) -> bool {
         false
     }
 
@@ -553,7 +553,7 @@ impl Thinker {
     /// Get inner `MapObject` data as ref. Panics if the inner is not actually
     /// `MapObject`
     pub fn mobj(&self) -> &MapObject {
-        if let ThinkerData::MapObject(ref obj) = self.data {
+        if let ThinkerData::MapObject(obj) = &self.data {
             obj
         } else {
             panic!("ObjectType is not MapObject");
@@ -566,7 +566,7 @@ impl Thinker {
         if let ThinkerData::MapObject(ref mut obj) = self.data {
             obj
         } else {
-            panic!("ObjectType is not MapObject, was: {:?}", self);
+            panic!("ObjectType is not MapObject, was: {self:?}");
         }
     }
 
@@ -733,7 +733,7 @@ mod tests {
     use wad::WadData;
 
     use crate::level::LevelState;
-    use crate::thinker::{Think, Thinker};
+    use crate::thinker::{Think as _, Thinker};
     use crate::{MAXPLAYERS, Player};
     use game_config::GameMode;
     use level::LevelData;

@@ -283,12 +283,11 @@ impl MapObject {
             }
         }
 
-        let mut pfwd = -1;
-        let mut pside = -1;
-        if let Some(player) = self.player() {
-            pfwd = player.cmd.forwardmove;
-            pside = player.cmd.sidemove;
-        }
+        let (pfwd, pside) = if let Some(player) = self.player() {
+            (player.cmd.forwardmove, player.cmd.sidemove)
+        } else {
+            (-1, -1)
+        };
 
         let stopspeed = FixedT::from_fixed(STOPSPEED);
         if self.momx > -stopspeed
@@ -379,7 +378,7 @@ impl MapObject {
                 let side = point_on_line_side(self.x, self.y, ld);
                 let old_side = point_on_line_side(old_x, old_y, ld);
                 if side != old_side && ld.special != 0 {
-                    cross_special_line(old_side, ld.clone(), self)
+                    cross_special_line(old_side, ld.clone(), self);
                 }
             }
         }
@@ -487,7 +486,7 @@ impl MapObject {
     /// Returns false to block movement.
     fn pit_check_thing(
         &mut self,
-        thing: &mut MapObject,
+        thing: &mut Self,
         endpoint_x: FixedT,
         endpoint_y: FixedT,
         _ctrl: &mut SubSectorMinMax,
@@ -589,7 +588,7 @@ impl MapObject {
     /// lines, records special lines. Returns false for blocking one-sided
     /// lines.
     fn pit_check_line(
-        &mut self,
+        &self,
         tmbbox: &[i32; 4],
         ctrl: &mut SubSectorMinMax,
         ld: &mut LineDef,
@@ -648,8 +647,8 @@ impl MapObject {
     ///
     /// Doom function name `P_SlideMove`
     fn p_slide_move(&mut self) {
-        let sentinel: FixedT = FixedT::from_fixed(FRACUNIT_SENTINEL);
-        let fudge: FixedT = FixedT::from_fixed(SLIDE_FUDGE);
+        let sentinel = FixedT::from_fixed(FRACUNIT_SENTINEL);
+        let fudge = FixedT::from_fixed(SLIDE_FUDGE);
         let mut hitcount = 0;
 
         let level = unsafe { &mut *self.level };
@@ -1102,25 +1101,27 @@ pub(crate) enum MoveDir {
 
 impl From<usize> for MoveDir {
     fn from(w: usize) -> Self {
-        if w >= MoveDir::NumDirs as usize {
-            panic!("{} is not a variant of DirType", w);
-        }
+        assert!(
+            w < Self::NumDirs as usize,
+            "{w} is not a variant of DirType"
+        );
         unsafe { std::mem::transmute(w) }
     }
 }
 
 impl<A: AngleInner> From<MoveDir> for Angle<A> {
-    fn from(d: MoveDir) -> Angle<A> {
+    fn from(d: MoveDir) -> Self {
         match d {
-            MoveDir::East => Angle::default(),
-            MoveDir::NorthEast => Angle::new(FRAC_PI_4),
-            MoveDir::North => Angle::new(FRAC_PI_2),
-            MoveDir::NorthWest => Angle::new(FRAC_PI_2 + FRAC_PI_4),
-            MoveDir::West => Angle::new(PI),
-            MoveDir::SouthWest => Angle::new(PI + FRAC_PI_4),
-            MoveDir::South => Angle::new(PI + FRAC_PI_2),
-            MoveDir::SouthEast => Angle::new(PI + FRAC_PI_2 + FRAC_PI_4),
-            _ => Angle::default(),
+            MoveDir::East => Self::default(),
+            MoveDir::NorthEast => Self::new(FRAC_PI_4),
+            MoveDir::North => Self::new(FRAC_PI_2),
+            MoveDir::NorthWest => Self::new(FRAC_PI_2 + FRAC_PI_4),
+            MoveDir::West => Self::new(PI),
+            MoveDir::SouthWest => Self::new(PI + FRAC_PI_4),
+            MoveDir::South => Self::new(PI + FRAC_PI_2),
+            MoveDir::SouthEast => Self::new(PI + FRAC_PI_2 + FRAC_PI_4),
+            MoveDir::None => todo!(),
+            MoveDir::NumDirs => todo!(),
         }
     }
 }

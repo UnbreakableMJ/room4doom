@@ -80,7 +80,7 @@ impl SoftbufferDisplay {
         (size.width, size.height)
     }
 
-    pub(crate) fn set_fullscreen(&mut self, mode: u8) {
+    pub(crate) fn set_fullscreen(&self, mode: u8) {
         let fs = match mode {
             1 => Some(Fullscreen::Borderless(None)),
             2 => {

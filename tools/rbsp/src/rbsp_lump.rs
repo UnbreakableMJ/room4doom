@@ -384,7 +384,7 @@ mod tests {
                 offset,
                 buf.len()
             );
-            assert_eq!(count, expected_counts[i], "section {} count mismatch", i);
+            assert_eq!(count, expected_counts[i], "section {i} count mismatch");
         });
     }
 

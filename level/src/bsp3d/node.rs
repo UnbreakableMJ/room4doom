@@ -45,16 +45,12 @@ impl Node {
         let dy = y.wrapping_sub(ny);
 
         if (ndy ^ ndx ^ dx ^ dy) as u32 & 0x8000_0000 != 0 {
-            return if (ndy ^ dx) as u32 & 0x8000_0000 != 0 {
-                1
-            } else {
-                0
-            };
+            return usize::from((ndy ^ dx) as u32 & 0x8000_0000 != 0);
         }
 
         let left = ((ndy >> 16) as i64 * dx as i64) >> 16;
         let right = (dy as i64 * (ndx >> 16) as i64) >> 16;
-        if right < left { 0 } else { 1 }
+        usize::from(right >= left)
     }
 
     /// Returns (front_child_id, back_child_id) for the given point.

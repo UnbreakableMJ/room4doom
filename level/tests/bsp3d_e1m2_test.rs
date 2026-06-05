@@ -33,10 +33,7 @@ fn test_e1m2_no_degenerate_polygons() {
                 let n = poly.vertices.len();
 
                 if n < 3 {
-                    failures.push(format!(
-                        "ss={} {}: fewer than 3 vertices ({})",
-                        ssid, label, n
-                    ));
+                    failures.push(format!("ss={ssid} {label}: fewer than 3 vertices ({n})"));
                     continue;
                 }
 
@@ -73,7 +70,7 @@ fn test_e1m2_no_degenerate_polygons() {
     }
 
     for f in &failures {
-        println!("{}", f);
+        println!("{f}");
     }
     assert!(failures.is_empty(), "{} failures", failures.len());
 }
@@ -160,14 +157,12 @@ fn test_e1m2_floor_ceiling_polygon_normals() {
         let ceil_area = shoelace(&ceil_poly.vertices, verts);
         if floor_area <= 0.0 {
             failures.push(format!(
-                "ss={}: floor shoelace={:.2} (expected > 0)",
-                ssid, floor_area
+                "ss={ssid}: floor shoelace={floor_area:.2} (expected > 0)"
             ));
         }
         if ceil_area >= 0.0 {
             failures.push(format!(
-                "ss={}: ceiling shoelace={:.2} (expected < 0)",
-                ssid, ceil_area
+                "ss={ssid}: ceiling shoelace={ceil_area:.2} (expected < 0)"
             ));
         }
 
@@ -196,14 +191,13 @@ fn test_e1m2_floor_ceiling_polygon_normals() {
         });
         if !all_found {
             failures.push(format!(
-                "ss={}: floor/ceiling XY mismatch (smaller not subset of larger)\n  floor={:?}\n  ceil={:?}",
-                ssid, floor_xy, ceil_xy
+                "ss={ssid}: floor/ceiling XY mismatch (smaller not subset of larger)\n  floor={floor_xy:?}\n  ceil={ceil_xy:?}"
             ));
         }
     }
 
     for f in &failures {
-        println!("{}", f);
+        println!("{f}");
     }
     assert!(failures.is_empty(), "{} failures", failures.len());
 }
@@ -233,8 +227,7 @@ fn test_e1m2_flat_polygon_coplanarity() {
                     let z = verts[vi].z;
                     if (z - z0).abs() > 0.01 {
                         failures.push(format!(
-                            "ss={} {}: vertex {} at z={:.2}, expected z={:.2}",
-                            ssid, label, vi, z, z0
+                            "ss={ssid} {label}: vertex {vi} at z={z:.2}, expected z={z0:.2}"
                         ));
                     }
                 }
@@ -243,7 +236,7 @@ fn test_e1m2_flat_polygon_coplanarity() {
     }
 
     for f in &failures {
-        println!("{}", f);
+        println!("{f}");
     }
     assert!(failures.is_empty(), "{} failures", failures.len());
 }
@@ -313,9 +306,7 @@ fn test_e1m2_ss267_platform_vertex_sharing() {
 
     assert!(
         unshared.is_empty(),
-        "SS267 platform sector {}: wall vertices {:?} at floor height not shared with floor polygon",
-        sector_id,
-        unshared
+        "SS267 platform sector {sector_id}: wall vertices {unshared:?} at floor height not shared with floor polygon"
     );
 }
 
@@ -337,7 +328,7 @@ fn test_debug_subsectors() {
     for &ssid in &target_ss {
         let leaf = &bsp3d.subsector_leaves[ssid];
         let sector_id = ss_to_sector[ssid];
-        println!("=== SUBSECTOR {} (sector {}) ===", ssid, sector_id);
+        println!("=== SUBSECTOR {ssid} (sector {sector_id}) ===");
         println!(
             "  floor_polygons: {}, ceiling_polygons: {}, total polygons: {}",
             leaf.floor_polygons.len(),
@@ -487,7 +478,7 @@ fn test_debug_subsectors() {
     // Collect sectors of our target subsectors
     let target_sectors: std::collections::HashSet<usize> =
         target_ss.iter().map(|&ss| ss_to_sector[ss]).collect();
-    println!("Target sectors: {:?}", target_sectors);
+    println!("Target sectors: {target_sectors:?}");
 
     // For each subsector not in our target list, check if it has walls
     // with linedefs that reference our target sectors

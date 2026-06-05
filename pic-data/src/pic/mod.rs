@@ -254,7 +254,7 @@ impl PicData {
 
             let mut x_pos = 0;
             let mut compose = vec![vec![u16::MAX; patch.height as usize]; patch.width as usize];
-            for c in patch.columns.iter() {
+            for c in &patch.columns {
                 if x_pos == patch.width as i32 {
                     break;
                 }
@@ -357,7 +357,7 @@ impl PicData {
 
     /// Force a fixed colourmap for all light levels. Pass 0 to disable.
     pub const fn set_fixed_lightscale(&mut self, colourmap: usize) {
-        self.use_fixed_colourmap = colourmap
+        self.use_fixed_colourmap = colourmap;
     }
 
     fn init_zlight_scales() -> [[usize; 128]; 16] {
@@ -434,7 +434,7 @@ impl PicData {
                 .map(&mut pic_func)
                 .collect();
             wall_pic.append(&mut textures2);
-        };
+        }
 
         let tmp = (texture_alloc_size / 1024).to_string();
         let size = tmp.split_at(2);
@@ -504,14 +504,14 @@ impl PicData {
 
     fn build_wall_pic(texture: WadTexture, patches: &[WadPatch]) -> WallPic {
         let mut compose = vec![u16::MAX; texture.height as usize * texture.width as usize];
-        for wad_tex_patch in texture.patches.iter() {
+        for wad_tex_patch in &texture.patches {
             let wad_patch = &patches[wad_tex_patch.patch_index];
             let mut x_pos = wad_tex_patch.origin_x;
             if x_pos.is_negative() {
                 x_pos = 0;
             }
 
-            for patch_column in wad_patch.columns.iter() {
+            for patch_column in &wad_patch.columns {
                 if patch_column.y_offset == 255 {
                     x_pos += 1;
                     continue;
@@ -556,7 +556,7 @@ impl PicData {
         // array is already contiguous `PALLETE_LEN * 256` colours.
         unsafe {
             std::slice::from_raw_parts(
-                self.palettes.as_ptr() as *const WadColour,
+                self.palettes.as_ptr().cast::<WadColour>(),
                 PALLETE_LEN * 256,
             )
         }
@@ -682,7 +682,7 @@ impl PicData {
         if let Some(idx) = self.wallpic_num_for_name(name) {
             self.sky_pic = idx;
         } else {
-            log::warn!("UMAPINFO sky texture '{}' not found, keeping default", name);
+            log::warn!("UMAPINFO sky texture '{name}' not found, keeping default");
         }
     }
 
@@ -752,13 +752,12 @@ impl PicData {
 
     #[inline(always)]
     pub fn get_flat(&self, num: usize) -> &FlatPic {
-        if num >= self.flat_translation.len() || num >= self.flats.len() {
-            panic!(
-                "get_flat: flat index {num} out of range (translations {}, flats {})",
-                self.flat_translation.len(),
-                self.flats.len()
-            )
-        }
+        assert!(
+            !(num >= self.flat_translation.len() || num >= self.flats.len()),
+            "get_flat: flat index {num} out of range (translations {}, flats {})",
+            self.flat_translation.len(),
+            self.flats.len()
+        );
         #[cfg(not(feature = "safety_check"))]
         unsafe {
             let num = self.flat_translation.get_unchecked(num);

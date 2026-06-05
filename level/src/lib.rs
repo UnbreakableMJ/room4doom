@@ -47,8 +47,8 @@ pub struct MapPtr<T: Debug> {
 }
 
 impl<T: Debug> MapPtr<T> {
-    pub fn new(t: &mut T) -> MapPtr<T> {
-        MapPtr {
+    pub fn new(t: &mut T) -> Self {
+        Self {
             inner: t,
         }
     }
@@ -63,8 +63,8 @@ impl<T: Debug> MapPtr<T> {
     /// set the internal pointer).
     ///
     /// Test builds should be run with `null_check` feature occasionally.
-    pub unsafe fn new_null() -> MapPtr<T> {
-        MapPtr {
+    pub unsafe fn new_null() -> Self {
+        Self {
             inner: null_mut(),
         }
     }
@@ -90,12 +90,12 @@ impl<T: Debug> PartialEq for MapPtr<T> {
 }
 
 impl<T: Debug> Clone for MapPtr<T> {
-    fn clone(&self) -> MapPtr<T> {
+    fn clone(&self) -> Self {
         #[cfg(feature = "null_check")]
         if self.inner.is_null() {
             panic!("NULL");
         }
-        MapPtr {
+        Self {
             inner: self.inner,
         }
     }

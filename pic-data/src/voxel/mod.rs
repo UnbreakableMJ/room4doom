@@ -5,7 +5,7 @@ pub mod voxeldef;
 
 use std::collections::HashMap;
 use std::f32::consts::{PI, TAU};
-use std::io::Write;
+use std::io::Write as _;
 use std::path::Path;
 
 use game_config::GameMode;
@@ -57,12 +57,7 @@ impl VoxelManager {
         let text = match text {
             Ok(t) => t,
             Err(e) => {
-                log::warn!(
-                    "No VOXELDEF.txt found at {:?} or {:?}: {}",
-                    voxeldef_path,
-                    alt_path,
-                    e
-                );
+                log::warn!("No VOXELDEF.txt found at {voxeldef_path:?} or {alt_path:?}: {e}");
                 return mgr;
             }
         };
@@ -77,7 +72,7 @@ impl VoxelManager {
                 dir.join(format!("{kvx_name}.kvx"))
             };
             std::fs::read(&kvx_path)
-                .map_err(|e| log::warn!("Failed to read {:?}: {}", kvx_path, e))
+                .map_err(|e| log::warn!("Failed to read {kvx_path:?}: {e}"))
                 .ok()
         };
         mgr.load_defs(
@@ -103,9 +98,8 @@ impl VoxelManager {
             lookup: HashMap::new(),
         };
 
-        let pk3_data = match pk3::extract_voxels(pk3_path, game_mode) {
-            Some(d) => d,
-            None => return mgr,
+        let Some(pk3_data) = pk3::extract_voxels(pk3_path, game_mode) else {
+            return mgr;
         };
 
         let defs = voxeldef::parse(&pk3_data.voxeldef_text);
@@ -174,23 +168,16 @@ impl VoxelManager {
                 continue;
             };
 
-            let sprite_index = match sprite_names.iter().position(|&n| n == sprite_code) {
-                Some(i) => i,
-                None => {
-                    log::debug!(
-                        "VOXELDEF sprite code '{}' not found in SPRNAMES",
-                        sprite_code
-                    );
-                    continue;
-                }
+            let Some(sprite_index) = sprite_names.iter().position(|&n| n == sprite_code) else {
+                log::debug!("VOXELDEF sprite code '{sprite_code}' not found in SPRNAMES");
+                continue;
             };
 
             let model_idx = if let Some(&idx) = kvx_to_idx.get(&def.kvx_file) {
                 idx
             } else {
-                let data = match resolve_kvx(&def.kvx_file) {
-                    Some(d) => d,
-                    None => continue,
+                let Some(data) = resolve_kvx(&def.kvx_file) else {
+                    continue;
                 };
                 let mut model = match kvx::VoxelModel::load(&data) {
                     Ok(m) => m,

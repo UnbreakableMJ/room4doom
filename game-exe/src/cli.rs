@@ -147,7 +147,7 @@ impl CLIOptions {
 
 impl From<CLIOptions> for GameOptions {
     fn from(g: CLIOptions) -> Self {
-        GameOptions {
+        Self {
             iwad: g.iwad,
             pwad: g.pwad,
             no_monsters: g.no_monsters,

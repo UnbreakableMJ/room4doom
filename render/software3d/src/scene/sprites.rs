@@ -38,7 +38,7 @@ impl Software3D {
         &mut self,
         sectors: &[Sector],
         view: &RenderView,
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
         let player_pos = Vec3::new(view.x.into(), view.y.into(), view.viewz.into());
@@ -70,7 +70,7 @@ impl Software3D {
                 let frame = (thing.frame & FF_FRAMEMASK) as usize;
 
                 // Check for voxel replacement (within distance threshold)
-                if let Some(ref mgr) = voxel_mgr
+                if let Some(mgr) = &voxel_mgr
                     && let Some(vslices) = mgr.get(sprnum, frame)
                 {
                     let dx = player_pos.x - thing.x.to_f32();
@@ -355,7 +355,7 @@ impl Software3D {
     fn render_sprite_quad(
         &mut self,
         quad: &SpriteQuad,
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
         // We need to split the quad into two triangles and render each,
@@ -441,7 +441,7 @@ impl Software3D {
         &mut self,
         slices: &[VoxelSliceRef],
         view_proj: &glam::Mat4,
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
         #[cfg(feature = "hprof")]

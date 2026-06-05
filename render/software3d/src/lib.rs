@@ -82,8 +82,7 @@ impl std::str::FromStr for DebugOverlay {
             "overdraw" => Ok(Self::Overdraw),
             "wireframe" => Ok(Self::Wireframe),
             other => Err(format!(
-                "unknown overlay '{}'. Expected: sector_id, depth, overdraw, wireframe",
-                other
+                "unknown overlay '{other}'. Expected: sector_id, depth, overdraw, wireframe"
             )),
         }
     }
@@ -745,7 +744,7 @@ impl Software3D {
         polygon: &SurfacePolygon,
         bsp3d: &BSP3D,
         sectors: &[Sector],
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         player_light: usize,
         buffer: &mut impl DrawBuffer,
     ) {
@@ -772,7 +771,7 @@ impl Software3D {
 
         // Transform vertices to clip space and setup for clipping
         let vert_count = polygon.vertices.len();
-        assert!(vert_count <= MAX_CLIPPED_VERTICES);
+        assert!(vert_count <= MAX_CLIPPED_VERTICES, "polygon exceeds clip buffer");
         let mut input_vertices = [Vec4::ZERO; MAX_CLIPPED_VERTICES];
         let mut input_tex_coords = [Vec3::ZERO; MAX_CLIPPED_VERTICES];
 
@@ -793,7 +792,7 @@ impl Software3D {
         for (i, &vertex_idx) in polygon.vertices.iter().enumerate() {
             let (_, clip_pos) = self.get_transformed_vertex(vertex_idx, bsp3d);
             let vertex = bsp3d.vertex_get(vertex_idx);
-            let (u, v) = self.calculate_tex_coords(
+            let (u, v) = Self::calculate_tex_coords(
                 vertex,
                 polygon,
                 wall_face,
@@ -991,7 +990,6 @@ impl Software3D {
     }
 
     fn calculate_tex_coords(
-        &self,
         world_pos: Vec3,
         surface: &SurfacePolygon,
         wall_face: Option<&WallFace>,

@@ -43,7 +43,7 @@ pub trait SectorExt {
 impl SectorExt for Sector {
     fn run_mut_func_on_thinglist(&mut self, mut func: impl FnMut(&mut MapObject) -> bool) -> bool {
         if let Some(thing_ptr) = self.thinglist {
-            let thing = thing_ptr as *mut Thinker;
+            let thing = thing_ptr.cast::<Thinker>();
             #[cfg(feature = "null_check")]
             if thing.is_null() {
                 std::panic!("thinglist is null when it shouldn't be");
@@ -68,7 +68,7 @@ impl SectorExt for Sector {
                         if (*next).should_remove() {
                             continue;
                         }
-                        thing = (*next).mobj_mut()
+                        thing = (*next).mobj_mut();
                     } else {
                         break;
                     }
@@ -80,7 +80,7 @@ impl SectorExt for Sector {
 
     fn run_func_on_thinglist(&self, mut func: impl FnMut(&MapObject) -> bool) -> bool {
         if let Some(thing_ptr) = self.thinglist {
-            let thing = thing_ptr as *mut Thinker;
+            let thing = thing_ptr.cast::<Thinker>();
             #[cfg(feature = "null_check")]
             if thing.is_null() {
                 std::panic!("thinglist is null when it shouldn't be");
@@ -105,7 +105,7 @@ impl SectorExt for Sector {
                         if (*next).should_remove() {
                             continue;
                         }
-                        thing = (*next).mobj()
+                        thing = (*next).mobj();
                     } else {
                         break;
                     }
@@ -124,14 +124,14 @@ impl SectorExt for Sector {
             return;
         }
         unsafe { &mut *thing }.mobj_mut().s_prev = None;
-        unsafe { &mut *thing }.mobj_mut().s_next = self.thinglist.map(|p| p as *mut Thinker);
+        unsafe { &mut *thing }.mobj_mut().s_next = self.thinglist.map(|p| p.cast::<Thinker>());
 
         if let Some(other_ptr) = self.thinglist {
-            let other = other_ptr as *mut Thinker;
+            let other = other_ptr.cast::<Thinker>();
             unsafe { &mut *other }.mobj_mut().s_prev = Some(thing);
         }
 
-        self.thinglist = Some(thing as *mut ());
+        self.thinglist = Some(thing.cast::<()>());
     }
 
     unsafe fn remove_from_thinglist(&mut self, thing: &mut Thinker) {
@@ -147,24 +147,24 @@ impl SectorExt for Sector {
             unsafe { &mut *prev }.mobj_mut().s_next = thing.mobj_mut().s_next;
         } else {
             let mut ss = thing.mobj().subsector.clone();
-            ss.sector.thinglist = thing.mobj().s_next.map(|p| p as *mut ());
+            ss.sector.thinglist = thing.mobj().s_next.map(|p| p.cast::<()>());
         }
     }
 
     fn sound_target(&self) -> Option<&mut MapObject> {
         self.sound_target
-            .map(|p| unsafe { &mut *(p as *mut Thinker) }.mobj_mut())
+            .map(|p| unsafe { &mut *p.cast::<Thinker>() }.mobj_mut())
     }
 
     fn sound_target_raw(&mut self) -> Option<*mut Thinker> {
-        self.sound_target.map(|p| p as *mut Thinker)
+        self.sound_target.map(|p| p.cast::<Thinker>())
     }
 
     fn set_sound_target_thinker(&mut self, target: *mut Thinker) {
-        self.sound_target = Some(target as *mut ());
+        self.sound_target = Some(target.cast::<()>());
     }
 
     fn set_sector_mover(&mut self, thinker: *mut Thinker) {
-        self.specialdata = Some(thinker as *mut ());
+        self.specialdata = Some(thinker.cast::<()>());
     }
 }

@@ -58,10 +58,11 @@ pub trait ScreenEffect {
     }
 }
 
-/// Health bleed: jagged red columns hang from the top of the screen, grown to
-/// `target[x] * (100 - health) / 100` and banded top-darkest to bottom-lightest.
-/// `target`/`band_off` are built once per size; only `shown` is recomputed when
-/// health changes.
+/// Jagged red columns hanging from the top of the screen as health drops.
+///
+/// Grown to `target[x] * (100 - health) / 100`, banded top-darkest to
+/// bottom-lightest. `target`/`band_off` are built once per size; only `shown`
+/// is recomputed when health changes.
 pub struct HealthBleed {
     /// Per-column max length, px (the full jagged shape: baseline + peaks).
     target: Vec<u16>,
@@ -423,10 +424,12 @@ mod bleed_tests {
     }
 }
 
-/// A u32 draw target plus the 8-bit scene index plane behind it. The renderer
-/// fills the index plane (`set_index`/`index_mut`) then `resolve`s it to u32;
-/// UI draws u32 directly (`set_pixel`/`buf_mut`). For the real backend the u32
-/// side is the display surface (possibly strided — always use `pitch`).
+/// A u32 draw target plus the 8-bit scene index plane behind it.
+///
+/// The renderer fills the index plane (`set_index`/`index_mut`) then `resolve`s
+/// it to u32; UI draws u32 directly (`set_pixel`/`buf_mut`). For the real
+/// backend the u32 side is the display surface (possibly strided — always use
+/// `pitch`).
 pub trait DrawBuffer {
     fn size(&self) -> &BufferSize;
     /// Write a `0xAARRGGBB` pixel to the resolved display surface (UI/overlays).
@@ -604,10 +607,11 @@ impl BufferSize {
 // Projection
 // =============================================================================
 
-/// Derive FOV and focal length for a given buffer size, keeping the view
-/// proportional to OG Doom's 320x200 at the specified base hfov (90°).
-/// Scales with buffer height so hi-res (400p) works correctly.
-/// Returns `(hfov, vfov, focal_length)` in radians / pixels.
+/// Derive FOV and focal length for a given buffer size.
+///
+/// Keeps the view proportional to OG Doom's 320x200 at the given base hfov
+/// (90°), scaling with buffer height so hi-res (400p) works. Returns
+/// `(hfov, vfov, focal_length)` in radians / pixels.
 pub fn og_projection(base_hfov: f32, buf_width: f32, buf_height: f32) -> (f32, f32, f32) {
     let scale = buf_height / OG_HEIGHT;
     let og_half_w = (OG_WIDTH / 2.0) * scale;

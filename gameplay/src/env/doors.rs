@@ -7,7 +7,7 @@ use sound_common::SfxName;
 use std::fmt::{self, Formatter};
 use std::ptr::null_mut;
 
-use crate::SectorExt;
+use crate::SectorExt as _;
 use crate::doom_def::{Card, TICRATE};
 use crate::env::specials::{PlaneResult, find_lowest_ceiling_surrounding, move_plane};
 use crate::env::switch::start_sector_sound;
@@ -171,7 +171,7 @@ impl Think for VerticalDoor {
                 }
             }
             _ => warn!("Invalid door direction of {}", door.direction),
-        };
+        }
 
         true
     }
@@ -254,7 +254,7 @@ pub fn ev_do_door(line: MapPtr<LineDef>, kind: DoorKind, level: &mut LevelState)
                 door.direction = -1;
                 start_sector_sound(&line, SfxName::Dorcls, &level.snd_command);
             }
-            _ => {}
+            DoorKind::RaiseIn5Mins => {}
         }
 
         let thinker =
@@ -275,9 +275,8 @@ pub fn ev_vertical_door(mut line: MapPtr<LineDef>, thing: &mut MapObject, level:
     let special = line.default_special;
     match special {
         26 | 32 => {
-            let player = match thing.player_mut() {
-                Some(p) => p,
-                None => return, // monsters can't open locked doors
+            let Some(player) = thing.player_mut() else {
+                return;
             };
             if !player.status.cards[Card::Bluecard as usize]
                 && !player.status.cards[Card::Blueskull as usize]
@@ -288,9 +287,8 @@ pub fn ev_vertical_door(mut line: MapPtr<LineDef>, thing: &mut MapObject, level:
             }
         }
         27 | 34 => {
-            let player = match thing.player_mut() {
-                Some(p) => p,
-                None => return,
+            let Some(player) = thing.player_mut() else {
+                return;
             };
             if !player.status.cards[Card::Yellowcard as usize]
                 && !player.status.cards[Card::Yellowskull as usize]
@@ -301,9 +299,8 @@ pub fn ev_vertical_door(mut line: MapPtr<LineDef>, thing: &mut MapObject, level:
             }
         }
         28 | 33 => {
-            let player = match thing.player_mut() {
-                Some(p) => p,
-                None => return,
+            let Some(player) = thing.player_mut() else {
+                return;
             };
             if !player.status.cards[Card::Redcard as usize]
                 && !player.status.cards[Card::Redskull as usize]
@@ -327,7 +324,7 @@ pub fn ev_vertical_door(mut line: MapPtr<LineDef>, thing: &mut MapObject, level:
 
     // if the sector has an active thinker, use it
     if let Some(data) = sec.specialdata {
-        let door = unsafe { &mut *(data as *mut Thinker) }.vdoor_mut();
+        let door = unsafe { &mut *data.cast::<Thinker>() }.vdoor_mut();
         match special {
             // ONLY FOR "RAISE" DOORS, NOT "OPEN"s
             1 | 26 | 27 | 28 | 117 => {

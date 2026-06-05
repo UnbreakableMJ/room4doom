@@ -48,23 +48,20 @@ impl Software3D {
         wall_tex: Option<usize>,
         brightness: usize,
         bounds: (Vec2, Vec2),
-        pic_data: &mut PicData,
+        pic_data: &PicData,
         buffer: &mut impl DrawBuffer,
     ) {
         let screen_poly = ScreenPoly(
             &self.rasterizer.screen_vertices_buffer[..self.rasterizer.screen_vertices_len],
         );
 
-        let interpolator = match TriangleInterpolator::new(
+        let Some(interpolator) = TriangleInterpolator::new(
             screen_poly.0,
             &self.rasterizer.tex_coords_buffer[..self.rasterizer.tex_coords_len],
             &self.rasterizer.inv_w_buffer[..self.rasterizer.inv_w_len],
-        ) {
-            Some(interpolator) => interpolator,
-            None => {
-                self.stats.polygons_early_culled += 1;
-                return;
-            }
+        ) else {
+            self.stats.polygons_early_culled += 1;
+            return;
         };
 
         let sky_pic = pic_data.sky_pic();
@@ -424,7 +421,7 @@ impl Software3D {
     /// Return the current debug overlay text, or empty if timed out.
     pub fn take_debug_line(&mut self) -> String {
         let text = self.debug.current_line().to_ascii_uppercase();
-        text.to_string()
+        text.clone()
     }
 
     /// Set the upper-right debug text overlay line, resetting the 5-second

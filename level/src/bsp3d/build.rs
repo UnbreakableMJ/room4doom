@@ -78,13 +78,13 @@ pub enum WallTexPin {
 impl From<LineDefFlags> for WallTexPin {
     fn from(flags: LineDefFlags) -> Self {
         if flags.contains(LineDefFlags::UnpegBottom) && flags.contains(LineDefFlags::UnpegTop) {
-            WallTexPin::UnpegBoth
+            Self::UnpegBoth
         } else if flags.contains(LineDefFlags::UnpegBottom) {
-            WallTexPin::UnpegBottom
+            Self::UnpegBottom
         } else if flags.contains(LineDefFlags::UnpegTop) {
-            WallTexPin::UnpegTop
+            Self::UnpegTop
         } else {
-            WallTexPin::None
+            Self::None
         }
     }
 }
@@ -136,7 +136,7 @@ impl AABB {
         self.max = self.max.max(point);
     }
 
-    fn expand_to_include_aabb(&mut self, other: &AABB) {
+    fn expand_to_include_aabb(&mut self, other: &Self) {
         self.min = self.min.min(other.min);
         self.max = self.max.max(other.max);
     }
@@ -808,7 +808,7 @@ impl BSP3D {
                 .ceilingheight
                 .to_f32()
                 .min(back_sector.ceilingheight.to_f32());
-            let front_face = self.wall_face_for_side(
+            let front_face = Self::wall_face_for_side(
                 segment,
                 false,
                 segment.sidedef.midtexture,
@@ -856,7 +856,7 @@ impl BSP3D {
         if front_tex.is_none() && back_tex.is_none() {
             return;
         }
-        let front = self.wall_face_for_side(
+        let front = Self::wall_face_for_side(
             segment,
             false,
             front_tex,
@@ -864,7 +864,7 @@ impl BSP3D {
             front_sector.ceilingheight.to_f32(),
         );
         let back = other_sidedef.map(|sd| {
-            self.wall_face_for_side(
+            Self::wall_face_for_side(
                 segment,
                 true,
                 back_tex,
@@ -897,7 +897,6 @@ impl BSP3D {
     /// the linedef reversed, so its direction and seg offset come from the
     /// opposite endpoints.
     fn wall_face_for_side(
-        &self,
         segment: &Segment,
         is_back: bool,
         texture: Option<usize>,
@@ -941,7 +940,7 @@ impl BSP3D {
             // creates fresh vertices and a ZhWallRecord. The mover pass
             // connects bottom → floor vertex, top → ceiling vertex.
             let back_sector_id = if is_zh { Some(front_id) } else { None };
-            let front_face = self.wall_face_for_side(
+            let front_face = Self::wall_face_for_side(
                 segment,
                 false,
                 segment.sidedef.midtexture,
@@ -1112,7 +1111,7 @@ impl BSP3D {
         sky_max_ceil: &[f32],
         sky_min_floor: &[f32],
     ) {
-        for sector in sectors.iter() {
+        for sector in sectors {
             let sector_id = sector.num as usize;
             let is_sky_ceil = sector.ceilingpic == sky_num;
             let is_sky_floor = sector.floorpic == sky_num;
@@ -1137,25 +1136,21 @@ impl BSP3D {
                 let ss = &subsectors[ss_id];
                 let start = ss.start_seg as usize;
                 let end = start + ss.seg_count as usize;
-                for seg in segments[start..end].iter() {
+                for seg in &segments[start..end] {
                     // Only perimeter segments: skip interior (same-sector)
                     // and sky-to-sky boundaries.
-                    let is_perimeter_ceil = match seg.backsector {
-                        Some(ref back) => {
-                            back.num != seg.frontsector.num && back.ceilingpic != sky_num
-                        }
+                    let is_perimeter_ceil = match &seg.backsector {
+                        Some(back) => back.num != seg.frontsector.num && back.ceilingpic != sky_num,
                         None => true,
                     };
-                    let is_perimeter_floor = match seg.backsector {
-                        Some(ref back) => {
-                            back.num != seg.frontsector.num && back.floorpic != sky_num
-                        }
+                    let is_perimeter_floor = match &seg.backsector {
+                        Some(back) => back.num != seg.frontsector.num && back.floorpic != sky_num,
                         None => true,
                     };
 
                     // Skip if the existing wall already reaches the target.
                     if needs_ceil_filler && is_perimeter_ceil && sky_ceil < max_h {
-                        let face = self.wall_face_for_side(
+                        let face = Self::wall_face_for_side(
                             seg,
                             false,
                             Some(sky_pic),
@@ -1177,7 +1172,7 @@ impl BSP3D {
                         );
                     }
                     if needs_floor_filler && is_perimeter_floor && min_h < sky_floor {
-                        let face = self.wall_face_for_side(
+                        let face = Self::wall_face_for_side(
                             seg,
                             false,
                             Some(sky_pic),
@@ -1303,7 +1298,7 @@ impl BSP3D {
             if fv.len() >= 3 && vertex_shoelace(&fv, &self.vertices) > 0.0 {
                 let fp = SurfacePolygon::new(
                     sector_num,
-                    self.create_horizontal_surface_kind(subsector.sector.floorpic),
+                    Self::create_horizontal_surface_kind(subsector.sector.floorpic),
                     fv,
                     Vec3::new(0.0, 0.0, 1.0),
                     &self.vertices,
@@ -1333,7 +1328,7 @@ impl BSP3D {
             }
             let cp = SurfacePolygon::new(
                 sector_num,
-                self.create_horizontal_surface_kind(subsector.sector.ceilingpic),
+                Self::create_horizontal_surface_kind(subsector.sector.ceilingpic),
                 cv,
                 Vec3::new(0.0, 0.0, -1.0),
                 &self.vertices,
@@ -1376,7 +1371,7 @@ impl BSP3D {
         self.update_node_aabbs_recursive(self.root_node);
     }
 
-    fn create_horizontal_surface_kind(&self, texture: usize) -> SurfaceKind {
+    fn create_horizontal_surface_kind(texture: usize) -> SurfaceKind {
         SurfaceKind::Horizontal {
             texture,
             tex_cos: HORIZONTAL_TEX_DIRECTION.cos(),

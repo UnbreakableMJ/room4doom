@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use test_utils::{doom_wad_path, load_map_with_pwad, sigil2_wad_path};
 
 /// Validate subsector 2587 floor polygon in E6M1 (sigil2.wad).
@@ -47,8 +49,7 @@ fn test_e6m1_subsector_2587_polygon() {
             .sum();
         assert!(
             area > 0.0,
-            "Floor polygon shoelace area must be positive, got {}",
-            area
+            "Floor polygon shoelace area must be positive, got {area}"
         );
     }
 }
@@ -85,8 +86,7 @@ fn test_e6m1_floor_ceiling_normals() {
                 .sum();
             if area <= 0.0 {
                 failures.push(format!(
-                    "ss={} floor poly={}: shoelace={:.2} (expected positive)",
-                    ssid, pi, area
+                    "ss={ssid} floor poly={pi}: shoelace={area:.2} (expected positive)"
                 ));
             }
         }
@@ -112,19 +112,18 @@ fn test_e6m1_floor_ceiling_normals() {
                 .sum();
             if area >= 0.0 {
                 failures.push(format!(
-                    "ss={} ceil poly={}: shoelace={:.2} (expected negative)",
-                    ssid, pi, area
+                    "ss={ssid} ceil poly={pi}: shoelace={area:.2} (expected negative)"
                 ));
             }
         }
     }
 
     for f in &failures {
-        println!("{}", f);
+        println!("{f}");
     }
 
     // Diagnostic: print vertex positions for each failing subsector.
-    let failing_ssids: std::collections::HashSet<usize> = failures
+    let failing_ssids: BTreeSet<usize> = failures
         .iter()
         .filter_map(|f| {
             let n = f
@@ -235,7 +234,7 @@ fn test_e6m1_mover_wall_cross_product_normals() {
     }
 
     for f in &failures {
-        println!("{}", f);
+        println!("{f}");
     }
     assert!(
         failures.is_empty(),
@@ -314,7 +313,7 @@ fn test_e6m1_sector76_floor_ceil_separation() {
     // Print all floor and ceiling polys for context.
     for &ssid in ss_ids {
         let leaf = &bsp3d.subsector_leaves[ssid];
-        println!("\n--- SS {} ---", ssid);
+        println!("\n--- SS {ssid} ---");
         for &pi in &leaf.floor_polygons {
             let poly = &bsp3d.polygons[pi];
             let positions: Vec<_> = poly
@@ -381,7 +380,7 @@ fn test_e6m1_sector76_floor_ceil_separation() {
                         && !ceil_vis.contains(&vi)
                         && !floor_vis.contains(&vi)
                     {
-                        wall_unshared.push((vi, *linedef_id, format!("{:?}", wall_type)));
+                        wall_unshared.push((vi, *linedef_id, format!("{wall_type:?}")));
                     }
                 }
             }
@@ -389,8 +388,8 @@ fn test_e6m1_sector76_floor_ceil_separation() {
     }
     wall_unshared.sort_by_key(|x| x.0);
     wall_unshared.dedup_by_key(|x| x.0);
-    for &(vi, ld, ref wt) in &wall_unshared {
-        let v = verts[vi];
+    for (vi, ld, wt) in &wall_unshared {
+        let v = verts[*vi];
         // Find nearby ceil vertex.
         let near_ceil: Vec<_> = ceil_vis
             .iter()
@@ -457,10 +456,7 @@ fn test_e6m1_no_degenerate_floor_polygons() {
 
     if !failures.is_empty() {
         for (ssid, fp_idx, reason) in &failures {
-            println!(
-                "Degenerate: subsector={} floor_poly={} reason={}",
-                ssid, fp_idx, reason
-            );
+            println!("Degenerate: subsector={ssid} floor_poly={fp_idx} reason={reason}");
         }
     }
 

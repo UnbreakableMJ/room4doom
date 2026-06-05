@@ -130,11 +130,10 @@ impl Rasterizer {
         buffer: &mut [u8],
         pitch: usize,
     ) {
-        let s = match self.voxel_setup(
+        let Some(s) = self.voxel_setup(
             origin, u_vec, v_vec, tex_width, tex_height, view_proj, camera_pos,
-        ) {
-            Some(s) => s,
-            None => return,
+        ) else {
+            return;
         };
 
         let mut col_idx = 0usize;
@@ -157,25 +156,27 @@ impl Rasterizer {
                         top
                     } else {
                         let c10 = c00 + s.clip_du;
-                        match (pdiv(c00, s.half_w, s.half_h), pdiv(c10, s.half_w, s.half_h)) {
-                            (Some(a), Some(b)) => (a, b),
-                            _ => {
-                                c00 += s.clip_dv;
-                                cached_top = None;
-                                continue;
-                            }
+                        if let (Some(a), Some(b)) =
+                            (pdiv(c00, s.half_w, s.half_h), pdiv(c10, s.half_w, s.half_h))
+                        {
+                            (a, b)
+                        } else {
+                            c00 += s.clip_dv;
+                            cached_top = None;
+                            continue;
                         }
                     };
 
                     let c01 = c00 + s.clip_dv;
                     let c11 = c00 + s.clip_duv;
-                    let bot = match (pdiv(c01, s.half_w, s.half_h), pdiv(c11, s.half_w, s.half_h)) {
-                        (Some(a), Some(b)) => (a, b),
-                        _ => {
-                            c00 += s.clip_dv;
-                            cached_top = None;
-                            continue;
-                        }
+                    let bot = if let (Some(a), Some(b)) =
+                        (pdiv(c01, s.half_w, s.half_h), pdiv(c11, s.half_w, s.half_h))
+                    {
+                        (a, b)
+                    } else {
+                        c00 += s.clip_dv;
+                        cached_top = None;
+                        continue;
                     };
                     let (s3, s2) = bot;
                     cached_top = Some((s3, s2));
@@ -295,11 +296,10 @@ impl Rasterizer {
         pitch: usize,
         fuzz_pos: &mut usize,
     ) {
-        let s = match self.voxel_setup(
+        let Some(s) = self.voxel_setup(
             origin, u_vec, v_vec, tex_width, tex_height, view_proj, camera_pos,
-        ) {
-            Some(s) => s,
-            None => return,
+        ) else {
+            return;
         };
         let h_clamp = s.h_f32 as i32 - 1;
 
@@ -323,25 +323,27 @@ impl Rasterizer {
                         top
                     } else {
                         let c10 = c00 + s.clip_du;
-                        match (pdiv(c00, s.half_w, s.half_h), pdiv(c10, s.half_w, s.half_h)) {
-                            (Some(a), Some(b)) => (a, b),
-                            _ => {
-                                c00 += s.clip_dv;
-                                cached_top = None;
-                                continue;
-                            }
+                        if let (Some(a), Some(b)) =
+                            (pdiv(c00, s.half_w, s.half_h), pdiv(c10, s.half_w, s.half_h))
+                        {
+                            (a, b)
+                        } else {
+                            c00 += s.clip_dv;
+                            cached_top = None;
+                            continue;
                         }
                     };
 
                     let c01 = c00 + s.clip_dv;
                     let c11 = c00 + s.clip_duv;
-                    let bot = match (pdiv(c01, s.half_w, s.half_h), pdiv(c11, s.half_w, s.half_h)) {
-                        (Some(a), Some(b)) => (a, b),
-                        _ => {
-                            c00 += s.clip_dv;
-                            cached_top = None;
-                            continue;
-                        }
+                    let bot = if let (Some(a), Some(b)) =
+                        (pdiv(c01, s.half_w, s.half_h), pdiv(c11, s.half_w, s.half_h))
+                    {
+                        (a, b)
+                    } else {
+                        c00 += s.clip_dv;
+                        cached_top = None;
+                        continue;
                     };
                     let (s3, s2) = bot;
                     cached_top = Some((s3, s2));

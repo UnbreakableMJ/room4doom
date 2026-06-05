@@ -48,7 +48,7 @@ pub struct VisSprite {
 }
 
 impl PartialOrd for VisSprite {
-    fn partial_cmp(&self, other: &VisSprite) -> Option<cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -183,8 +183,7 @@ impl Software25D {
         let sprite_frame = sprite_def.frames[frame as usize];
         let patch;
         let patch_index;
-        let flip;
-        if sprite_frame.rotate == 1 {
+        let flip = if sprite_frame.rotate == 1 {
             // OG: ang = R_PointToAngle(thing->x, thing->y) - thing->angle;
             //     rot = (ang + (unsigned)(ANG45/2)*9) >> 29;
             let ang = r_point_to_angle(thing.x - view.x, thing.y - view.y)
@@ -192,12 +191,12 @@ impl Software25D {
             let rot = (ang.wrapping_add((ANG45 / 2).wrapping_mul(9)) >> 29) as usize;
             patch_index = sprite_frame.lump[rot] as u32 as usize;
             patch = pic_data.sprite_patch(patch_index);
-            flip = sprite_frame.flip[rot];
+            sprite_frame.flip[rot]
         } else {
             patch_index = sprite_frame.lump[0] as u32 as usize;
             patch = pic_data.sprite_patch(patch_index);
-            flip = sprite_frame.flip[0];
-        }
+            sprite_frame.flip[0]
+        };
 
         if flip > 0 {
             tx -= FixedT::from((patch.data.len() - patch.left_offset as u32 as usize) as i32);
@@ -470,7 +469,7 @@ impl Software25D {
         rend: &mut impl DrawBuffer,
     ) {
         let light = (view.sector_lightlevel >> 4) + view.extralight;
-        for sprite in view.psprites.iter() {
+        for sprite in &view.psprites {
             if sprite.active {
                 self.draw_player_sprite(sprite, light, view.is_shadow, pic_data, rend);
             }
@@ -559,7 +558,7 @@ impl Software25D {
 
         let clip_bottom = vec![FixedT::ZERO; size.width_usize()];
         let clip_top = vec![FixedT::from(size.view_height()); size.width_usize()];
-        self.draw_vissprite(&vis, &clip_top, &clip_bottom, pic_data, rend)
+        self.draw_vissprite(&vis, &clip_top, &clip_bottom, pic_data, rend);
     }
 
     /// Sort vissprites by depth and draw all masked (transparent) geometry.

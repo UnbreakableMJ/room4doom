@@ -142,7 +142,7 @@ impl MapObject {
         let trace_y = FixedT::from_fixed(oy);
         let trace_dx = xy2_x - trace_x;
         let trace_dy = xy2_y - trace_y;
-        let mut shoot_traverse = ShootTraverse::new(
+        let shoot_traverse = ShootTraverse::new(
             aim_slope,
             attack_range,
             damage,
@@ -206,7 +206,7 @@ impl MapObject {
     }
 
     /// Cause damage to other thing if in radius of self
-    fn radius_damage_other(&mut self, other: &mut MapObject, damage: i32, valid: usize) -> bool {
+    fn radius_damage_other(&mut self, other: &mut Self, damage: i32, valid: usize) -> bool {
         if other.valid_count == valid {
             return true;
         }
@@ -415,7 +415,7 @@ impl MapObject {
     /// Check if there is a clear line of sight to the selected target object.
     /// This checks the '2D top-down' nature of Doom, followed by the Z
     /// (height) axis.
-    pub(crate) fn check_sight_target(&mut self, target: &MapObject) -> bool {
+    pub(crate) fn check_sight_target(&mut self, target: &Self) -> bool {
         #[cfg(feature = "hprof")]
         profile!("check_sight_target");
 
@@ -567,7 +567,7 @@ impl SubSectTraverse {
 
     /// Process a single aim intercept, updating slope bounds and recording
     /// hits.
-    fn check_aim(&mut self, shooter: &mut MapObject, intercept: &mut Intercept) -> bool {
+    fn check_aim(&mut self, shooter: &MapObject, intercept: &mut Intercept) -> bool {
         if let Some(line) = intercept.line.as_mut() {
             if !line.flags.contains(LineDefFlags::TwoSided) {
                 return false;
@@ -758,7 +758,7 @@ impl ShootTraverse {
                     .fixed_mul(frac_adj.fixed_mul(self.attack_range));
 
             if thing.flags.contains(MapObjFlag::Noblood) {
-                MapObject::spawn_puff(x, y, z, self.attack_range, unsafe { &mut *thing.level })
+                MapObject::spawn_puff(x, y, z, self.attack_range, unsafe { &mut *thing.level });
             } else {
                 MapObject::spawn_blood(x, y, z, self.damage, unsafe { &mut *thing.level });
             }
@@ -894,9 +894,8 @@ fn cross_subsector(
         }
 
         let front = &seg.frontsector;
-        let back = match seg.backsector.as_ref() {
-            Some(b) => b,
-            None => return false,
+        let Some(back) = seg.backsector.as_ref() else {
+            return false;
         };
 
         let front_floor = front.floorheight;
